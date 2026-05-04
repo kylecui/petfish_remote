@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.runtime/
+.env
+*.db
+*.db-journal
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.tsbuildinfo

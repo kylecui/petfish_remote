@@ -1,0 +1,8 @@
+runtime:
+  storage: "sqlite"
+  sqlite_path: ".runtime/petfish.db"
+  attachments_dir: ".runtime/attachments"
+  logs_dir: ".runtime/logs"
+  max_task_runtime_seconds: 1800
+  max_message_length: 3500
+  default_mode: "read_only"

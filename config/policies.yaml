@@ -1,0 +1,40 @@
+policies:
+  default:
+    deny:
+      - "read:*.env"
+      - "read:**/.env"
+      - "read:**/id_rsa"
+      - "read:**/*secret*"
+      - "exec:curl * | bash"
+      - "exec:rm -rf *"
+      - "git:push"
+      - "git:reset --hard"
+    require_approval:
+      - "write:**/*.py"
+      - "write:**/*.ts"
+      - "write:**/*.js"
+      - "write:**/*.c"
+      - "exec:make *"
+      - "exec:npm install *"
+      - "exec:uv add *"
+      - "docker:*"
+    allow:
+      - "read:**"
+      - "exec:git status"
+      - "exec:git diff"
+      - "exec:rg *"
+
+  kernel-ebpf:
+    inherit: "default"
+    require_approval:
+      - "write:**/*.bpf.c"
+      - "write:**/*.h"
+      - "exec:make *"
+      - "exec:sudo *"
+      - "exec:bpftool *"
+      - "exec:ip link *"
+    deny:
+      - "exec:sudo rm *"
+      - "exec:bpftool prog detach *"
+      - "exec:ip link set * down"
+      - "exec:git push *"

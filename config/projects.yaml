@@ -1,0 +1,21 @@
+projects:
+  # Example project configuration
+  # Each project must be explicitly registered to be remotely controlled
+  
+  # rswitch:
+  #   name: "rSwitch"
+  #   runtime: "local"
+  #   path: "/home/kyle/workspace/rswitch"
+  #   default_mode: "guarded"
+  #   default_agent: "code-reviewer"
+  #   allowed_users:
+  #     - "telegram:78910"
+  #   readme_files:
+  #     - "AGENTS.md"
+  #     - "README.md"
+  #   test_commands:
+  #     unit: "make test"
+  #     build: "make build"
+  #     lint: "make lint"
+  #   risk_profile: "default"
+  #   secrets_policy: "deny_read"

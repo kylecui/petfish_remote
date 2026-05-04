@@ -1,0 +1,35 @@
+{
+  "packs": {
+    "repo-deploy-ops-skill-pack": {
+      "installed_at": "2026-05-04T13:41:45Z",
+      "version": "1.0.0",
+      "skills": [
+        "repo-runtime-discovery",
+        "target-host-readiness",
+        "deployment-executor",
+        "deployment-verifier",
+        "service-operations",
+        "incident-rollback",
+        "repo-service-lifecycle"
+      ],
+      "description": "部署与运维 — 运行时识别、主机检查、部署执行、验证、运维、回滚、全生命周期管理"
+    },
+    "petfish-style-skill": {
+      "installed_at": "2026-05-04T13:41:53Z",
+      "version": "4.0.0",
+      "skills": [
+        "petfish-style-rewriter"
+      ],
+      "description": "工程写作风格改写 — 去AI味、说人话、AI腔检测与改写、中英文紧凑混排"
+    },
+    "opencode-skill-pack-testcases-usage-docs": {
+      "installed_at": "2026-05-04T13:41:53Z",
+      "version": "1.0.0",
+      "skills": [
+        "generate-test-cases",
+        "generate-usage-docs"
+      ],
+      "description": "测试用例与使用文档生成 — test case、覆盖率矩阵、README、API docs"
+    }
+  }
+}

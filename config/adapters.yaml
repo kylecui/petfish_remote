@@ -1,0 +1,25 @@
+adapters:
+  telegram:
+    enabled: true
+    token_env: TELEGRAM_BOT_TOKEN
+    webhook:
+      enabled: false
+      url: ""
+    polling:
+      enabled: true
+
+  slack:
+    enabled: false
+    signing_secret_env: SLACK_SIGNING_SECRET
+    bot_token_env: SLACK_BOT_TOKEN
+
+  feishu:
+    enabled: false
+    app_id_env: FEISHU_APP_ID
+    app_secret_env: FEISHU_APP_SECRET
+
+  wecom:
+    enabled: false
+
+  discord:
+    enabled: false

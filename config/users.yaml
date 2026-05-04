@@ -1,0 +1,29 @@
+users:
+  # Example user configuration
+  # - id: "telegram:78910"
+  #   name: "Kyle"
+  #   role: "owner"
+  #   allowed_projects:
+  #     - "rswitch"
+  #     - "skills-team"
+  #   allowed_modes:
+  #     - "read_only"
+  #     - "suggest"
+  #     - "edit_guarded"
+  #     - "execute_guarded"
+
+roles:
+  owner:
+    can_approve: true
+    can_manage_projects: true
+    can_run_tests: true
+
+  developer:
+    can_approve: true
+    can_manage_projects: false
+    can_run_tests: true
+
+  viewer:
+    can_approve: false
+    can_manage_projects: false
+    can_run_tests: false

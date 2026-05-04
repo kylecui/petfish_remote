@@ -1,0 +1,39 @@
+runtimes:
+  # Local runtime: opencode runs on same host as PetFish Remote
+  local:
+    type: local
+    name: "Local Host"
+    shell: "bash"
+    working_root: "/home"
+    opencode_bin: "opencode"
+    path_style: "linux"
+
+  # WSL runtime example
+  # wsl-ubuntu:
+  #   type: wsl
+  #   name: "WSL Ubuntu"
+  #   distro: "Ubuntu-24.04"
+  #   shell: "bash"
+  #   working_root: "/home/kyle/workspaces"
+  #   opencode_bin: "opencode"
+  #   path_style: "linux"
+
+  # SSH runtime example
+  # remote-server:
+  #   type: ssh
+  #   name: "Remote Linux Server"
+  #   host: "192.168.56.101"
+  #   port: 22
+  #   user: "kyle"
+  #   identity_file: "~/.ssh/id_ed25519"
+  #   working_root: "/home/kyle/workspaces"
+  #   opencode_bin: "opencode"
+  #   path_style: "linux"
+
+  # opencode server runtime example
+  # opencode-server:
+  #   type: server
+  #   name: "opencode server"
+  #   base_url: "http://127.0.0.1:4096"
+  #   working_root: "/home/kyle/workspaces"
+  #   path_style: "linux"
