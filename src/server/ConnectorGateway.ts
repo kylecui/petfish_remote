@@ -192,6 +192,10 @@ export class ConnectorGateway extends EventEmitter {
         break;
       }
       case MSG.PONG:
+      case MSG.TASK_ACCEPTED:
+      case MSG.TASK_REJECTED:
+      case MSG.TASK_STATE:
+      case MSG.RESUME_RUNNING:
         break;
       default:
         console.warn(`Unknown message type from ${connectorId}: ${envelope.type}`);
