@@ -31,6 +31,7 @@ export class ConnectorGateway extends EventEmitter {
   private pingTimer: NodeJS.Timeout | undefined;
   private readonly lastPongAt = new Map<WebSocket, number>();
   private readonly STALE_TIMEOUT_MS = 30_000;
+  private readonly pendingMessages = new Map<string, Envelope[]>();
 
   public constructor(private readonly options: GatewayOptions) {
     super();
@@ -79,11 +80,20 @@ export class ConnectorGateway extends EventEmitter {
 
   public sendToConnector(connectorId: string, envelope: Envelope): boolean {
     const info = this.registry.get(connectorId);
-    if (!info || info.ws.readyState !== 1) {
-      return false;
+    if (info && info.ws.readyState === 1) {
+      info.ws.send(JSON.stringify(envelope));
+      return true;
     }
-    info.ws.send(JSON.stringify(envelope));
-    return true;
+
+    if (this.registry.isReconnecting(connectorId)) {
+      const queue = this.pendingMessages.get(connectorId) ?? [];
+      queue.push(envelope);
+      this.pendingMessages.set(connectorId, queue);
+      console.log(`[gateway] Queued message for reconnecting connector ${connectorId} (queue size: ${queue.length})`);
+      return true;
+    }
+
+    return false;
   }
 
   private handleConnection(ws: WebSocket): void {
@@ -142,6 +152,7 @@ export class ConnectorGateway extends EventEmitter {
         };
         this.registry.register(info);
         this.emit('connector:change', connectorId, info);
+        this.drainPendingMessages(connectorId!, info.ws);
 
         const ack = createEnvelope(MSG.REGISTERED, {
           connectorId: payload.connectorId,
@@ -164,6 +175,7 @@ export class ConnectorGateway extends EventEmitter {
         if (current && current.ws === ws) {
           console.log(`Connector ${connectorId} disconnected, starting 60s grace window`);
           this.registry.startGraceWindow(connectorId, () => {
+            this.pendingMessages.delete(connectorId!);
             this.emit('connector:change', connectorId, undefined);
           });
         }
@@ -211,6 +223,16 @@ export class ConnectorGateway extends EventEmitter {
       default:
         console.warn(`Unknown message type from ${connectorId}: ${envelope.type}`);
     }
+  }
+
+  private drainPendingMessages(connectorId: string, ws: WebSocket): void {
+    const queue = this.pendingMessages.get(connectorId);
+    if (!queue || queue.length === 0) return;
+    console.log(`[gateway] Draining ${queue.length} queued messages for ${connectorId}`);
+    for (const envelope of queue) {
+      ws.send(JSON.stringify(envelope));
+    }
+    this.pendingMessages.delete(connectorId);
   }
 
   private sendError(ws: WebSocket, code: string, message: string): void {
