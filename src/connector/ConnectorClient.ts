@@ -24,6 +24,8 @@ export class ConnectorClient {
   private stopped = false;
   private readonly heartbeatTimeoutMs = 30_000;
   private readonly clientPingIntervalMs = 15_000;
+  private readonly sendBuffer: string[] = [];
+  private readonly maxBufferSize = 200;
 
   public constructor(
     private readonly config: ConnectorConfig,
@@ -129,6 +131,7 @@ export class ConnectorClient {
     switch (envelope.type) {
       case MSG.REGISTERED:
         console.log('Registration accepted by server');
+        this.drainSendBuffer();
         break;
       case MSG.TASK_START:
         this.handleTaskStart(envelope);
@@ -192,8 +195,33 @@ export class ConnectorClient {
   }
 
   private send(envelope: Envelope): void {
+    const data = JSON.stringify(envelope);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(envelope));
+      this.ws.send(data);
+    } else {
+      // Buffer non-register messages for re-send after reconnect
+      if (envelope.type !== MSG.REGISTER) {
+        if (this.sendBuffer.length < this.maxBufferSize) {
+          this.sendBuffer.push(data);
+        } else {
+          console.warn(`Send buffer full (${this.maxBufferSize}), dropping message type=${envelope.type}`);
+        }
+      }
+    }
+  }
+
+  private drainSendBuffer(): void {
+    if (this.sendBuffer.length === 0) return;
+    console.log(`Draining ${this.sendBuffer.length} buffered messages...`);
+    while (this.sendBuffer.length > 0) {
+      const data = this.sendBuffer.shift()!;
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(data);
+      } else {
+        // Connection lost again during drain, put it back
+        this.sendBuffer.unshift(data);
+        break;
+      }
     }
   }
 
