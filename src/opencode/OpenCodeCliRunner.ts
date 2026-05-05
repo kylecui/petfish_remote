@@ -24,6 +24,7 @@ export class OpenCodeCliRunner implements OpenCodeRunner {
       taskId: params.sessionId,
       projectId: params.projectId,
       instruction: prompt,
+      rawInstruction: params.instruction,
       mode: params.mode,
       onOutput: params.onOutput,
     });

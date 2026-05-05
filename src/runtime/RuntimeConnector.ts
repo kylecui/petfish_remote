@@ -10,8 +10,8 @@ export interface RuntimeCommand {
   taskId?: string;
   projectId?: string;
   instruction?: string;
+  rawInstruction?: string;
   mode?: string;
-  /** Called incrementally as output arrives. Optional — if omitted, output is still buffered in RuntimeResult. */
   onOutput?: (chunk: string, stream: OutputStream) => void;
 }
 

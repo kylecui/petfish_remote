@@ -104,6 +104,7 @@ export const taskStartPayloadSchema = z.object({
   projectId: z.string(),
   projectPath: z.string(),
   instruction: z.string(),
+  rawInstruction: z.string().optional(),
   mode: z.string(),
   timeoutSeconds: z.number(),
   env: z.record(z.string()).optional(),

@@ -173,7 +173,8 @@ export class ConnectorClient {
 
     if (this.sessionBridge) {
       this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
-      this.sessionBridge.prompt(payload.taskId, payload.instruction, onOutput, onComplete, onFail);
+      const instruction = payload.rawInstruction ?? payload.instruction;
+      this.sessionBridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
       return;
     }
 
