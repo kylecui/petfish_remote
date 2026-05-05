@@ -11,7 +11,10 @@ import type { PolicyConfig } from './core/PolicyEngine.js';
 import { AuditLogger } from './core/AuditLogger.js';
 import { RuntimeRouter } from './runtime/RuntimeRouter.js';
 import { LocalRuntime } from './runtime/LocalRuntime.js';
+import { RemoteRuntime } from './runtime/RemoteRuntime.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
+import { ConnectorAuth } from './server/ConnectorAuth.js';
+import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse } from './types.js';
 
@@ -42,6 +45,28 @@ for (const rt of config.runtimes) {
   if (rt.type === 'local') {
     runtimeRouter.registerConnector(rt.id, new LocalRuntime(rt.id, rt.opencode_bin));
   }
+}
+
+let gateway: ConnectorGateway | undefined;
+
+if (config.gateway.enabled) {
+  const auth = new ConnectorAuth(config.connector_tokens);
+  gateway = new ConnectorGateway({
+    port: config.gateway.port,
+    path: config.gateway.path,
+    pingIntervalMs: config.gateway.pingIntervalMs,
+    auth,
+  });
+
+  for (const rt of config.runtimes) {
+    if (rt.type === 'connector' && rt.host) {
+      const remote = new RemoteRuntime(rt.id, rt.host, gateway);
+      runtimeRouter.registerConnector(rt.id, remote);
+    }
+  }
+
+  void gateway.start();
+  console.log(`ConnectorGateway started on :${config.gateway.port}${config.gateway.path}`);
 }
 
 const taskManager = new TaskManager(storage, runtimeRouter, projectRegistry, policyEngine);
@@ -195,9 +220,11 @@ if (telegramToken) {
 
   process.once('SIGINT', () => {
     void telegramAdapter?.stop();
+    void gateway?.stop();
   });
   process.once('SIGTERM', () => {
     void telegramAdapter?.stop();
+    void gateway?.stop();
   });
 
   void telegramAdapter.start();

@@ -4,6 +4,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 
 import type { ProjectConfig, RuntimeConfig, UserConfig } from './types.js';
+import { type ConnectorToken, connectorTokenSchema } from './server/ConnectorAuth.js';
 
 const executionModeSchema = z.enum(['read_only', 'suggest', 'edit_guarded', 'execute_guarded', 'admin']);
 const runtimeTypeSchema = z.enum(['local', 'wsl', 'ssh', 'hyperv', 'vmware', 'docker', 'server', 'connector']);
@@ -76,7 +77,14 @@ const appConfigSchema = z.object({
   adapters: nullableRecord().default({}),
   users: mapOrArray(userConfigSchema).default([]),
   runtimes: mapOrArray(runtimeConfigSchema).default([]),
+  connector_tokens: mapOrArray(connectorTokenSchema).default([]),
   runtime_settings: nullableRecord().default({}),
+  gateway: z.preprocess((v) => v ?? {}, z.object({
+    enabled: z.boolean().default(false),
+    port: z.number().default(9100),
+    path: z.string().default('/ws/connector'),
+    pingIntervalMs: z.number().default(30000),
+  }).default({})),
 });
 
 export interface AppConfig {
@@ -85,7 +93,9 @@ export interface AppConfig {
   adapters: Record<string, unknown>;
   users: UserConfig[];
   runtimes: RuntimeConfig[];
+  connector_tokens: ConnectorToken[];
   runtime_settings: Record<string, unknown>;
+  gateway: { enabled: boolean; port: number; path: string; pingIntervalMs: number };
 }
 
 function mergeRecords(base: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
@@ -112,7 +122,9 @@ export function loadConfig(configDir: string): AppConfig {
     adapters: {},
     users: [],
     runtimes: [],
+    connector_tokens: [],
     runtime_settings: {},
+    gateway: { enabled: false, port: 9100, path: '/ws/connector', pingIntervalMs: 30000 },
   };
 
   for (const fileName of yamlFiles) {
@@ -124,9 +136,13 @@ export function loadConfig(configDir: string): AppConfig {
     merged.projects = [...merged.projects, ...candidate.projects];
     merged.users = [...merged.users, ...candidate.users];
     merged.runtimes = [...merged.runtimes, ...candidate.runtimes];
+    merged.connector_tokens = [...merged.connector_tokens, ...candidate.connector_tokens];
     merged.policies = mergeRecords(merged.policies, candidate.policies);
     merged.adapters = mergeRecords(merged.adapters, candidate.adapters);
     merged.runtime_settings = mergeRecords(merged.runtime_settings, candidate.runtime_settings);
+    if (candidate.gateway.enabled) {
+      merged.gateway = candidate.gateway;
+    }
   }
 
   return merged;

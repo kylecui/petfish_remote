@@ -1,0 +1,19 @@
+gateway:
+  enabled: true
+  port: 9100
+  path: /ws/connector
+  pingIntervalMs: 30000
+
+connector_tokens:
+  kyle-laptop:
+    connectorId: kyle-laptop
+    token: "changeme-generate-a-real-token"
+    label: "Kyle's dev machine"
+
+runtimes:
+  kyle-laptop:
+    type: connector
+    name: "Kyle's Laptop"
+    host: "kyle-laptop"
+    working_root: "/home/kylecui"
+    path_style: linux
