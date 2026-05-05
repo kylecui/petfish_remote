@@ -2,6 +2,7 @@ node_modules/
 dist/
 .runtime/
 .env
+connector.yaml
 *.db
 *.db-journal
 *.log

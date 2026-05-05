@@ -15,3 +15,20 @@ projects:
       typecheck: "npm run typecheck"
     risk_profile: "default"
     secrets_policy: "deny_read"
+
+  petfish-remote-dev:
+    name: "PetFish Remote (Dev)"
+    runtime: "kyle-desktop"
+    path: "/home/kylecui/dev/petfish_remote"
+    default_mode: "read_only"
+    allowed_users:
+      - "telegram:685608515"
+    readme_files:
+      - "README.md"
+      - "AGENTS.md"
+    test_commands:
+      unit: "npm test"
+      build: "npm run build"
+      typecheck: "npm run typecheck"
+    risk_profile: "default"
+    secrets_policy: "deny_read"

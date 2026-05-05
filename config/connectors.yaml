@@ -5,15 +5,15 @@ gateway:
   pingIntervalMs: 30000
 
 connector_tokens:
-  kyle-laptop:
-    connectorId: kyle-laptop
-    token: "changeme-generate-a-real-token"
-    label: "Kyle's dev machine"
+  kyle-desktop:
+    connectorId: kyle-desktop
+    token: "e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE"
+    label: "Kyle's WSL desktop (DESKTOP-J3QIBUN)"
 
 runtimes:
-  kyle-laptop:
+  kyle-desktop:
     type: connector
-    name: "Kyle's Laptop"
-    host: "kyle-laptop"
-    working_root: "/home/kylecui"
+    name: "Kyle's Desktop"
+    host: "kyle-desktop"
+    working_root: "/home/kylecui/dev"
     path_style: linux
