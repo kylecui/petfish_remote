@@ -20,8 +20,10 @@ export class ConnectorClient {
   private reconnectDelay: number;
   private reconnectTimer: NodeJS.Timeout | undefined;
   private heartbeatTimer: NodeJS.Timeout | undefined;
+  private pingTimer: NodeJS.Timeout | undefined;
   private stopped = false;
-  private readonly heartbeatTimeoutMs = 90_000;
+  private readonly heartbeatTimeoutMs = 30_000;
+  private readonly clientPingIntervalMs = 15_000;
 
   public constructor(
     private readonly config: ConnectorConfig,
@@ -38,6 +40,7 @@ export class ConnectorClient {
   public stop(): void {
     this.stopped = true;
     this.clearHeartbeat();
+    this.clearClientPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -58,6 +61,7 @@ export class ConnectorClient {
       console.log('Connected, sending registration...');
       this.reconnectDelay = this.config.reconnectIntervalMs;
       this.resetHeartbeat();
+      this.startClientPing();
       this.sendRegister();
     });
 
@@ -76,6 +80,7 @@ export class ConnectorClient {
     this.ws.on('close', (code, reason) => {
       console.log(`Disconnected: ${code} ${reason.toString()}`);
       this.clearHeartbeat();
+      this.clearClientPing();
       this.scheduleReconnect();
     });
 
@@ -204,6 +209,22 @@ export class ConnectorClient {
     if (this.heartbeatTimer) {
       clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
+    }
+  }
+
+  private startClientPing(): void {
+    this.clearClientPing();
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.ping();
+      }
+    }, this.clientPingIntervalMs);
+  }
+
+  private clearClientPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = undefined;
     }
   }
 }
