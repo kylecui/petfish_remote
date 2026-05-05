@@ -23,6 +23,8 @@ export class OpenCodeCliRunner implements OpenCodeRunner {
       timeoutSeconds: params.timeoutSeconds,
       taskId: params.sessionId,
       projectId: params.projectId,
+      instruction: prompt,
+      mode: params.mode,
       onOutput: params.onOutput,
     });
 
