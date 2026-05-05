@@ -1,0 +1,182 @@
+import { hostname } from 'node:os';
+
+import WebSocket from 'ws';
+
+import {
+  type Envelope,
+  type TaskStartPayload,
+  type TaskControlPayload,
+  MSG,
+  createEnvelope,
+  parseEnvelope,
+  taskStartPayloadSchema,
+  taskControlPayloadSchema,
+} from '../protocol/connectorProtocol.js';
+import type { ConnectorConfig } from './connectorConfig.js';
+import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
+
+export class ConnectorClient {
+  private ws: WebSocket | undefined;
+  private reconnectDelay: number;
+  private reconnectTimer: NodeJS.Timeout | undefined;
+  private stopped = false;
+
+  public constructor(
+    private readonly config: ConnectorConfig,
+    private readonly executor: LocalTaskExecutor,
+  ) {
+    this.reconnectDelay = config.reconnectIntervalMs;
+  }
+
+  public start(): void {
+    this.stopped = false;
+    this.connect();
+  }
+
+  public stop(): void {
+    this.stopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    if (this.ws) {
+      this.ws.close(1000, 'Client stopping');
+      this.ws = undefined;
+    }
+  }
+
+  private connect(): void {
+    if (this.stopped) return;
+
+    console.log(`Connecting to ${this.config.serverUrl}...`);
+    this.ws = new WebSocket(this.config.serverUrl);
+
+    this.ws.on('open', () => {
+      console.log('Connected, sending registration...');
+      this.reconnectDelay = this.config.reconnectIntervalMs;
+      this.sendRegister();
+    });
+
+    this.ws.on('message', (data) => {
+      let envelope: Envelope;
+      try {
+        envelope = parseEnvelope(data.toString());
+      } catch {
+        console.error('Failed to parse server message');
+        return;
+      }
+      this.handleMessage(envelope);
+    });
+
+    this.ws.on('close', (code, reason) => {
+      console.log(`Disconnected: ${code} ${reason.toString()}`);
+      this.scheduleReconnect();
+    });
+
+    this.ws.on('error', (err) => {
+      console.error(`WebSocket error: ${err.message}`);
+    });
+
+    this.ws.on('ping', () => {
+      this.ws?.pong();
+    });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped) return;
+    console.log(`Reconnecting in ${this.reconnectDelay}ms...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.config.maxReconnectIntervalMs);
+      this.connect();
+    }, this.reconnectDelay);
+  }
+
+  private sendRegister(): void {
+    const projects = this.config.projects.map((p) => ({
+      id: p.id,
+      path: p.path,
+      opencodeAvailable: true,
+    }));
+
+    this.send(
+      createEnvelope(MSG.REGISTER, {
+        connectorId: this.config.connectorId,
+        token: this.config.token,
+        hostname: hostname(),
+        projects,
+      }),
+    );
+  }
+
+  private handleMessage(envelope: Envelope): void {
+    switch (envelope.type) {
+      case MSG.REGISTERED:
+        console.log('Registration accepted by server');
+        break;
+      case MSG.TASK_START:
+        this.handleTaskStart(envelope);
+        break;
+      case MSG.TASK_CONTROL:
+        this.handleTaskControl(envelope);
+        break;
+      case MSG.ERROR:
+        console.error('Server error:', envelope.payload);
+        break;
+      case MSG.PING:
+        this.send(createEnvelope(MSG.PONG, {}));
+        break;
+      default:
+        console.warn(`Unknown message type: ${envelope.type}`);
+    }
+  }
+
+  private handleTaskStart(envelope: Envelope): void {
+    let payload: TaskStartPayload;
+    try {
+      payload = taskStartPayloadSchema.parse(envelope.payload);
+    } catch {
+      this.send(createEnvelope(MSG.TASK_REJECTED, { taskId: envelope.taskId ?? 'unknown', reason: 'Invalid task payload' }, envelope.taskId));
+      return;
+    }
+
+    const accepted = this.executor.execute(
+      payload.taskId,
+      payload.projectId,
+      payload.instruction,
+      payload.mode,
+      payload.timeoutSeconds,
+      (taskId, stream, chunk) => {
+        this.send(createEnvelope(MSG.TASK_OUTPUT, { taskId, stream, chunk }, taskId));
+      },
+      (taskId, exitCode, stdout, stderr, startedAt, finishedAt) => {
+        this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt }, taskId));
+      },
+      (taskId, error) => {
+        this.send(createEnvelope(MSG.TASK_FAIL, { taskId, error }, taskId));
+      },
+    );
+
+    if (accepted) {
+      this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
+    }
+  }
+
+  private handleTaskControl(envelope: Envelope): void {
+    let payload: TaskControlPayload;
+    try {
+      payload = taskControlPayloadSchema.parse(envelope.payload);
+    } catch {
+      return;
+    }
+
+    if (payload.action === 'cancel') {
+      this.executor.cancel(payload.taskId);
+    }
+  }
+
+  private send(envelope: Envelope): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(envelope));
+    }
+  }
+}
