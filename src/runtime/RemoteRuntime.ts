@@ -72,8 +72,10 @@ export class RemoteRuntime implements RuntimeConnector {
         env: command.env,
       };
 
+      console.log(`[remote] Sending task.start to connector=${this.connectorId} taskId=${taskId} instruction=${(command.instruction ?? command.command).slice(0, 80)}...`);
       const envelope = createEnvelope(MSG.TASK_START, payload as unknown as Record<string, unknown>, taskId);
       const sent = this.gateway.sendToConnector(this.connectorId, envelope);
+      console.log(`[remote] sendToConnector result: ${sent}`);
       if (!sent) {
         this.pending.delete(taskId);
         reject(new Error(`Failed to send task to connector ${this.connectorId}`));

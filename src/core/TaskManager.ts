@@ -71,6 +71,7 @@ export class TaskManager {
     }
 
     this.updateStatus(taskId, 'running');
+    console.log(`[dispatch] taskId=${taskId} project=${task.project_id} runtime=${project.runtime} connector=${connector.id}(${connector.type})`);
 
     const runner = new OpenCodeCliRunner(connector);
     try {
@@ -84,9 +85,11 @@ export class TaskManager {
         onOutput,
       });
 
+      console.log(`[dispatch] taskId=${taskId} completed exitCode=${result.exitCode}`);
       this.updateStatus(taskId, result.exitCode === 0 ? 'completed' : 'failed');
       return { output: result.output, exitCode: result.exitCode };
     } catch (err) {
+      console.error(`[dispatch] taskId=${taskId} error:`, err);
       this.updateStatus(taskId, 'failed');
       throw err;
     }

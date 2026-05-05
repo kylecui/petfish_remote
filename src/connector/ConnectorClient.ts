@@ -19,7 +19,9 @@ export class ConnectorClient {
   private ws: WebSocket | undefined;
   private reconnectDelay: number;
   private reconnectTimer: NodeJS.Timeout | undefined;
+  private heartbeatTimer: NodeJS.Timeout | undefined;
   private stopped = false;
+  private readonly heartbeatTimeoutMs = 90_000;
 
   public constructor(
     private readonly config: ConnectorConfig,
@@ -35,6 +37,7 @@ export class ConnectorClient {
 
   public stop(): void {
     this.stopped = true;
+    this.clearHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -54,10 +57,12 @@ export class ConnectorClient {
     this.ws.on('open', () => {
       console.log('Connected, sending registration...');
       this.reconnectDelay = this.config.reconnectIntervalMs;
+      this.resetHeartbeat();
       this.sendRegister();
     });
 
     this.ws.on('message', (data) => {
+      this.resetHeartbeat();
       let envelope: Envelope;
       try {
         envelope = parseEnvelope(data.toString());
@@ -70,6 +75,7 @@ export class ConnectorClient {
 
     this.ws.on('close', (code, reason) => {
       console.log(`Disconnected: ${code} ${reason.toString()}`);
+      this.clearHeartbeat();
       this.scheduleReconnect();
     });
 
@@ -78,7 +84,12 @@ export class ConnectorClient {
     });
 
     this.ws.on('ping', () => {
+      this.resetHeartbeat();
       this.ws?.pong();
+    });
+
+    this.ws.on('pong', () => {
+      this.resetHeartbeat();
     });
   }
 
@@ -109,6 +120,7 @@ export class ConnectorClient {
   }
 
   private handleMessage(envelope: Envelope): void {
+    console.log(`[ws-recv] type=${envelope.type} taskId=${envelope.taskId ?? 'none'}`);
     switch (envelope.type) {
       case MSG.REGISTERED:
         console.log('Registration accepted by server');
@@ -177,6 +189,21 @@ export class ConnectorClient {
   private send(envelope: Envelope): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(envelope));
+    }
+  }
+
+  private resetHeartbeat(): void {
+    this.clearHeartbeat();
+    this.heartbeatTimer = setTimeout(() => {
+      console.log('Heartbeat timeout — no activity, reconnecting...');
+      this.ws?.terminate();
+    }, this.heartbeatTimeoutMs);
+  }
+
+  private clearHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
     }
   }
 }
