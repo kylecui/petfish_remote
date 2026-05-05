@@ -162,9 +162,10 @@ export class ConnectorGateway extends EventEmitter {
       if (connectorId) {
         const current = this.registry.get(connectorId);
         if (current && current.ws === ws) {
-          this.registry.unregister(connectorId);
-          this.emit('connector:change', connectorId, undefined);
-          console.log(`Connector disconnected: ${connectorId}`);
+          console.log(`Connector ${connectorId} disconnected, starting 60s grace window`);
+          this.registry.startGraceWindow(connectorId, () => {
+            this.emit('connector:change', connectorId, undefined);
+          });
         }
       }
     });
