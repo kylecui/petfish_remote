@@ -37,11 +37,15 @@ export class LocalRuntime implements RuntimeConnector {
       let stderr = '';
 
       child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
+        const text = chunk.toString();
+        stdout += text;
+        command.onOutput?.(text, 'stdout');
       });
 
       child.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
+        const text = chunk.toString();
+        stderr += text;
+        command.onOutput?.(text, 'stderr');
       });
 
       let timeoutHandle: NodeJS.Timeout | undefined;

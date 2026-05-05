@@ -1,11 +1,15 @@
 import type { RuntimeType } from '../types.js';
 
+export type OutputStream = 'stdout' | 'stderr';
+
 export interface RuntimeCommand {
   cwd: string;
   command: string;
   timeoutSeconds?: number;
   env?: Record<string, string>;
   taskId?: string;
+  /** Called incrementally as output arrives. Optional — if omitted, output is still buffered in RuntimeResult. */
+  onOutput?: (chunk: string, stream: OutputStream) => void;
 }
 
 export interface RuntimeResult {
