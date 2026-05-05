@@ -14,6 +14,7 @@ import {
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
+import type { SessionBridge } from './SessionBridge.js';
 
 export class ConnectorClient {
   private ws: WebSocket | undefined;
@@ -30,6 +31,7 @@ export class ConnectorClient {
   public constructor(
     private readonly config: ConnectorConfig,
     private readonly executor: LocalTaskExecutor,
+    private readonly sessionBridge?: SessionBridge,
   ) {
     this.reconnectDelay = config.reconnectIntervalMs;
   }
@@ -159,21 +161,31 @@ export class ConnectorClient {
       return;
     }
 
+    const onOutput = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => {
+      this.send(createEnvelope(MSG.TASK_OUTPUT, { taskId, stream, chunk }, taskId));
+    };
+    const onComplete = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => {
+      this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt }, taskId));
+    };
+    const onFail = (taskId: string, error: string) => {
+      this.send(createEnvelope(MSG.TASK_FAIL, { taskId, error }, taskId));
+    };
+
+    if (this.sessionBridge) {
+      this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
+      this.sessionBridge.prompt(payload.taskId, payload.instruction, onOutput, onComplete, onFail);
+      return;
+    }
+
     const accepted = this.executor.execute(
       payload.taskId,
       payload.projectId,
       payload.instruction,
       payload.mode,
       payload.timeoutSeconds,
-      (taskId, stream, chunk) => {
-        this.send(createEnvelope(MSG.TASK_OUTPUT, { taskId, stream, chunk }, taskId));
-      },
-      (taskId, exitCode, stdout, stderr, startedAt, finishedAt) => {
-        this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt }, taskId));
-      },
-      (taskId, error) => {
-        this.send(createEnvelope(MSG.TASK_FAIL, { taskId, error }, taskId));
-      },
+      onOutput,
+      onComplete,
+      onFail,
     );
 
     if (accepted) {
