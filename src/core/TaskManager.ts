@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 
 import { OpenCodeCliRunner } from '../opencode/OpenCodeCliRunner.js';
+import type { OutputStream } from '../runtime/RuntimeConnector.js';
 import type { RuntimeRouter } from '../runtime/RuntimeRouter.js';
 import type { Storage } from '../storage/sqlite.js';
 import type { ExecutionMode, TaskRecord, TaskStatus } from '../types.js';
@@ -46,7 +47,10 @@ export class TaskManager {
     return task;
   }
 
-  public async dispatchTask(taskId: string): Promise<TaskDispatchResult> {
+  public async dispatchTask(
+    taskId: string,
+    onOutput?: (chunk: string, stream: OutputStream) => void,
+  ): Promise<TaskDispatchResult> {
     const task = this.storage.getTask(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -76,6 +80,7 @@ export class TaskManager {
         mode: task.mode,
         sessionId: taskId,
         timeoutSeconds: 1800,
+        onOutput,
       });
 
       this.updateStatus(taskId, result.exitCode === 0 ? 'completed' : 'failed');

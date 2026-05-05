@@ -13,6 +13,7 @@ import { RuntimeRouter } from './runtime/RuntimeRouter.js';
 import { LocalRuntime } from './runtime/LocalRuntime.js';
 import { RemoteRuntime } from './runtime/RemoteRuntime.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
+import { OutputBatcher } from './render/OutputBatcher.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { Storage } from './storage/sqlite.js';
@@ -64,6 +65,20 @@ if (config.gateway.enabled) {
       runtimeRouter.registerConnector(rt.id, remote);
     }
   }
+
+  gateway.on('connector:change', (connectorId: string, info: unknown) => {
+    if (!telegramAdapter) return;
+    const status = info ? '🟢 online' : '🔴 offline';
+    const adminChatId = process.env.PETFISH_ADMIN_CHAT_ID;
+    if (adminChatId) {
+      void telegramAdapter.sendMessage({
+        platform: 'telegram',
+        chat_id: adminChatId,
+        message_type: 'text',
+        text: `Connector ${connectorId} is now ${status}`,
+      });
+    }
+  });
 
   void gateway.start();
   console.log(`ConnectorGateway started on :${config.gateway.port}${config.gateway.path}`);
@@ -146,28 +161,26 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       sessionManager.updateTask(event.chat_id, task.task_id);
       responseText = messageRenderer.renderTaskCreated(task);
 
-      taskManager.dispatchTask(task.task_id).then((result) => {
-        if (telegramAdapter) {
-          const output = result.output.length > 3000
-            ? result.output.slice(0, 3000) + '\n...(truncated)'
-            : result.output;
-          void telegramAdapter.sendMessage({
+      const batcher = new OutputBatcher(
+        (text) => {
+          if (!telegramAdapter) return Promise.resolve();
+          return telegramAdapter.sendMessage({
             platform: 'telegram',
             chat_id: event.chat_id,
             message_type: 'text',
-            text: `Task ${task.task_id} ${result.exitCode === 0 ? 'completed' : 'failed'}:\n${output}`,
+            text,
           });
-        }
+        },
+        task.task_id,
+      );
+
+      taskManager.dispatchTask(task.task_id, (chunk) => {
+        batcher.append(chunk);
+      }).then((result) => {
+        void batcher.complete(result.exitCode);
       }).catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        if (telegramAdapter) {
-          void telegramAdapter.sendMessage({
-            platform: 'telegram',
-            chat_id: event.chat_id,
-            message_type: 'text',
-            text: `Task ${task.task_id} error: ${msg}`,
-          });
-        }
+        void batcher.fail(msg);
       });
       break;
     }

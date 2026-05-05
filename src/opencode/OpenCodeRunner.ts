@@ -1,3 +1,4 @@
+import type { OutputStream } from '../runtime/RuntimeConnector.js';
 import type { ExecutionMode } from '../types.js';
 
 export interface RunParams {
@@ -6,6 +7,7 @@ export interface RunParams {
   mode: ExecutionMode;
   sessionId?: string;
   timeoutSeconds?: number;
+  onOutput?: (chunk: string, stream: OutputStream) => void;
 }
 
 export interface RunResult {
