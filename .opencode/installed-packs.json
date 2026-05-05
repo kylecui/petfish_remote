@@ -30,6 +30,30 @@
         "generate-usage-docs"
       ],
       "description": "测试用例与使用文档生成 — test case、覆盖率矩阵、README、API docs"
+    },
+    "anti-sycophancy-calibration-pack": {
+      "installed_at": "2026-05-05T14:39:34Z",
+      "version": "0.1.0",
+      "skills": [
+        "anti-sycophancy-calibration"
+      ],
+      "description": "反迎合决策校准 — 在评审、方案设计、代码审查等判断型任务中降低AI迎合倾向，通过中性化提问、评分卡、替代方案比较和置信度分离提升判断质量"
+    },
+    "fish-trail": {
+      "installed_at": "2026-05-05T14:40:06Z",
+      "version": "0.5.0",
+      "skills": [
+        "fish-trail"
+      ],
+      "description": "话题治理器 — 在项目内维护topic边界、继承策略和切换记录，降低跨话题上下文污染。三层架构：AGENTS.md always-on感知 + MCP server状态管理 + SKILL.md深度治理方法论"
+    },
+    "trustskills-governance-pack": {
+      "installed_at": "2026-05-05T14:40:29Z",
+      "version": "0.1.0",
+      "skills": [
+        "skill-trust-governance"
+      ],
+      "description": "Skill安全治理引擎 — 基于行为分析的skill可信度评估、风险评分与治理决策"
     }
   }
 }

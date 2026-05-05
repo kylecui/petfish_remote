@@ -83,7 +83,7 @@ const appConfigSchema = z.object({
     enabled: z.boolean().default(false),
     port: z.number().default(9100),
     path: z.string().default('/ws/connector'),
-    pingIntervalMs: z.number().default(30000),
+    pingIntervalMs: z.number().default(15000),
   }).default({})),
 });
 
@@ -124,7 +124,7 @@ export function loadConfig(configDir: string): AppConfig {
     runtimes: [],
     connector_tokens: [],
     runtime_settings: {},
-    gateway: { enabled: false, port: 9100, path: '/ws/connector', pingIntervalMs: 30000 },
+    gateway: { enabled: false, port: 9100, path: '/ws/connector', pingIntervalMs: 15000 },
   };
 
   for (const fileName of yamlFiles) {

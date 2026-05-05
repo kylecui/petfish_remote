@@ -29,6 +29,8 @@ export class ConnectorGateway extends EventEmitter {
   private readonly wss: WebSocketServer;
   public readonly registry = new ConnectorRegistry();
   private pingTimer: NodeJS.Timeout | undefined;
+  private readonly lastPongAt = new Map<WebSocket, number>();
+  private readonly STALE_TIMEOUT_MS = 30_000;
 
   public constructor(private readonly options: GatewayOptions) {
     super();
@@ -87,6 +89,8 @@ export class ConnectorGateway extends EventEmitter {
   private handleConnection(ws: WebSocket): void {
     let authenticated = false;
     let connectorId: string | undefined;
+
+    this.lastPongAt.set(ws, Date.now());
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) {
@@ -154,6 +158,7 @@ export class ConnectorGateway extends EventEmitter {
 
     ws.on('close', () => {
       clearTimeout(authTimeout);
+      this.lastPongAt.delete(ws);
       if (connectorId) {
         const current = this.registry.get(connectorId);
         if (current && current.ws === ws) {
@@ -168,7 +173,9 @@ export class ConnectorGateway extends EventEmitter {
       console.error(`WebSocket error${connectorId ? ` (${connectorId})` : ''}:`, err.message);
     });
 
-    ws.on('pong', () => {});
+    ws.on('pong', () => {
+      this.lastPongAt.set(ws, Date.now());
+    });
   }
 
   private handleAuthenticatedMessage(connectorId: string, envelope: Envelope): void {
@@ -212,10 +219,19 @@ export class ConnectorGateway extends EventEmitter {
 
   private startPingLoop(): void {
     this.pingTimer = setInterval(() => {
+      const now = Date.now();
       for (const client of this.wss.clients) {
-        if (client.readyState === 1) {
-          client.ping();
+        if (client.readyState !== 1) continue;
+
+        const lastSeen = this.lastPongAt.get(client) ?? now;
+        if (now - lastSeen > this.STALE_TIMEOUT_MS) {
+          console.log(`Terminating stale WebSocket (no pong for ${now - lastSeen}ms)`);
+          client.terminate(); // force-kill — guarantees 'close' event fires
+          this.lastPongAt.delete(client);
+          continue;
         }
+
+        client.ping();
       }
     }, this.options.pingIntervalMs);
   }

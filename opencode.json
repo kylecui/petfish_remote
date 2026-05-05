@@ -2,7 +2,19 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": {
     "skill": {
-      "petfish-style-rewriter": "allow"
+      "petfish-style-rewriter": "allow",
+      "fish-trail": "allow"
+    }
+  },
+  "mcp": {
+    "context-state": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        ".opencode/skills/fish-trail/mcp/context-state/server.py"
+      ]
     }
   }
 }
