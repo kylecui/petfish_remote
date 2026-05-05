@@ -76,6 +76,7 @@ export class TaskManager {
     try {
       const result = await runner.run({
         projectPath: project.path,
+        projectId: task.project_id,
         instruction: task.instruction,
         mode: task.mode,
         sessionId: taskId,

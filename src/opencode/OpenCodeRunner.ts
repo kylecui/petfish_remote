@@ -3,6 +3,7 @@ import type { ExecutionMode } from '../types.js';
 
 export interface RunParams {
   projectPath: string;
+  projectId?: string;
   instruction: string;
   mode: ExecutionMode;
   sessionId?: string;

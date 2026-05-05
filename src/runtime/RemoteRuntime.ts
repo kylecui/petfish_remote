@@ -64,7 +64,7 @@ export class RemoteRuntime implements RuntimeConnector {
 
       const payload: TaskStartPayload = {
         taskId,
-        projectId: '',
+        projectId: command.projectId ?? '',
         projectPath: command.cwd,
         instruction: command.command,
         mode: 'read_only',
