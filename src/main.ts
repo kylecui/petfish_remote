@@ -11,7 +11,6 @@ import type { PolicyConfig } from './core/PolicyEngine.js';
 import { AuditLogger } from './core/AuditLogger.js';
 import { RuntimeRouter } from './runtime/RuntimeRouter.js';
 import { LocalRuntime } from './runtime/LocalRuntime.js';
-import { OpenCodeCliRunner } from './opencode/OpenCodeCliRunner.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse } from './types.js';
@@ -45,9 +44,7 @@ for (const rt of config.runtimes) {
   }
 }
 
-const defaultRuntime = runtimeRouter.getConnector('local');
-const openCodeRunner = new OpenCodeCliRunner(defaultRuntime, 'opencode');
-const taskManager = new TaskManager(storage, openCodeRunner, policyEngine);
+const taskManager = new TaskManager(storage, runtimeRouter, projectRegistry, policyEngine);
 
 async function handleChatEvent(event: ChatEvent): Promise<void> {
   const userId = `${event.platform}:${event.user_id}`;
@@ -123,6 +120,30 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       });
       sessionManager.updateTask(event.chat_id, task.task_id);
       responseText = messageRenderer.renderTaskCreated(task);
+
+      taskManager.dispatchTask(task.task_id).then((result) => {
+        if (telegramAdapter) {
+          const output = result.output.length > 3000
+            ? result.output.slice(0, 3000) + '\n...(truncated)'
+            : result.output;
+          void telegramAdapter.sendMessage({
+            platform: 'telegram',
+            chat_id: event.chat_id,
+            message_type: 'text',
+            text: `Task ${task.task_id} ${result.exitCode === 0 ? 'completed' : 'failed'}:\n${output}`,
+          });
+        }
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (telegramAdapter) {
+          void telegramAdapter.sendMessage({
+            platform: 'telegram',
+            chat_id: event.chat_id,
+            message_type: 'text',
+            text: `Task ${task.task_id} error: ${msg}`,
+          });
+        }
+      });
       break;
     }
     case 'status': {

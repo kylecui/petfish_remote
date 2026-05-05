@@ -1,9 +1,11 @@
 import { nanoid } from 'nanoid';
 
-import type { OpenCodeRunner } from '../opencode/OpenCodeRunner.js';
+import { OpenCodeCliRunner } from '../opencode/OpenCodeCliRunner.js';
+import type { RuntimeRouter } from '../runtime/RuntimeRouter.js';
 import type { Storage } from '../storage/sqlite.js';
 import type { ExecutionMode, TaskRecord, TaskStatus } from '../types.js';
 import type { PolicyEngine } from './PolicyEngine.js';
+import type { ProjectRegistry } from './ProjectRegistry.js';
 
 export interface CreateTaskParams {
   project_id: string;
@@ -12,13 +14,18 @@ export interface CreateTaskParams {
   mode: ExecutionMode;
 }
 
+export interface TaskDispatchResult {
+  output: string;
+  exitCode: number;
+}
+
 export class TaskManager {
   public constructor(
     private readonly storage: Storage,
-    private readonly openCodeRunner: OpenCodeRunner,
+    private readonly runtimeRouter: RuntimeRouter,
+    private readonly projectRegistry: ProjectRegistry,
     private readonly policyEngine: PolicyEngine,
   ) {
-    void this.openCodeRunner;
     void this.policyEngine;
   }
 
@@ -37,6 +44,46 @@ export class TaskManager {
 
     this.storage.createTask(task);
     return task;
+  }
+
+  public async dispatchTask(taskId: string): Promise<TaskDispatchResult> {
+    const task = this.storage.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    const project = this.projectRegistry.getProject(task.project_id);
+    if (!project) {
+      this.updateStatus(taskId, 'failed');
+      throw new Error(`Project not found: ${task.project_id}`);
+    }
+
+    let connector;
+    try {
+      connector = this.runtimeRouter.getConnector(project.runtime);
+    } catch {
+      this.updateStatus(taskId, 'queued');
+      return { output: `Runtime "${project.runtime}" is not connected. Task queued.`, exitCode: -1 };
+    }
+
+    this.updateStatus(taskId, 'running');
+
+    const runner = new OpenCodeCliRunner(connector);
+    try {
+      const result = await runner.run({
+        projectPath: project.path,
+        instruction: task.instruction,
+        mode: task.mode,
+        sessionId: taskId,
+        timeoutSeconds: 1800,
+      });
+
+      this.updateStatus(taskId, result.exitCode === 0 ? 'completed' : 'failed');
+      return { output: result.output, exitCode: result.exitCode };
+    } catch (err) {
+      this.updateStatus(taskId, 'failed');
+      throw err;
+    }
   }
 
   public getTask(taskId: string): TaskRecord | undefined {

@@ -1,21 +1,17 @@
 projects:
-  # Example project configuration
-  # Each project must be explicitly registered to be remotely controlled
-  
-  # rswitch:
-  #   name: "rSwitch"
-  #   runtime: "local"
-  #   path: "/home/kyle/workspace/rswitch"
-  #   default_mode: "guarded"
-  #   default_agent: "code-reviewer"
-  #   allowed_users:
-  #     - "telegram:78910"
-  #   readme_files:
-  #     - "AGENTS.md"
-  #     - "README.md"
-  #   test_commands:
-  #     unit: "make test"
-  #     build: "make build"
-  #     lint: "make lint"
-  #   risk_profile: "default"
-  #   secrets_policy: "deny_read"
+  petfish-remote:
+    name: "PetFish Remote"
+    runtime: "local"
+    path: "/opt/petfish-remote"
+    default_mode: "read_only"
+    allowed_users:
+      - "telegram:685608515"
+    readme_files:
+      - "README.md"
+      - "AGENTS.md"
+    test_commands:
+      unit: "npm test"
+      build: "npm run build"
+      typecheck: "npm run typecheck"
+    risk_profile: "default"
+    secrets_policy: "deny_read"

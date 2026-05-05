@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ProjectConfig, RuntimeConfig, UserConfig } from './types.js';
 
 const executionModeSchema = z.enum(['read_only', 'suggest', 'edit_guarded', 'execute_guarded', 'admin']);
-const runtimeTypeSchema = z.enum(['local', 'wsl', 'ssh', 'hyperv', 'vmware', 'docker', 'server']);
+const runtimeTypeSchema = z.enum(['local', 'wsl', 'ssh', 'hyperv', 'vmware', 'docker', 'server', 'connector']);
 const runtimePathStyleSchema = z.enum(['linux', 'windows']);
 
 const projectConfigSchema = z.object({
@@ -48,13 +48,35 @@ const userConfigSchema = z.object({
   allowed_modes: z.array(executionModeSchema),
 });
 
+/**
+ * Convert a YAML map `{ key: { ...fields } }` to an array `[{ id: key, ...fields }]`.
+ * Also handles: null/undefined → [], already-an-array → pass through.
+ */
+function mapToArray(value: unknown): unknown[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).map(([key, fields]) => ({
+      id: key,
+      ...(typeof fields === 'object' && fields !== null ? (fields as Record<string, unknown>) : {}),
+    }));
+  }
+  return [];
+}
+
+const mapOrArray = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => mapToArray(v), z.array(schema));
+
+const nullableRecord = () =>
+  z.preprocess((v) => v ?? {}, z.record(z.string(), z.unknown()));
+
 const appConfigSchema = z.object({
-  projects: z.array(projectConfigSchema).default([]),
-  policies: z.record(z.string(), z.unknown()).default({}),
-  adapters: z.record(z.string(), z.unknown()).default({}),
-  users: z.array(userConfigSchema).default([]),
-  runtimes: z.array(runtimeConfigSchema).default([]),
-  runtime_settings: z.record(z.string(), z.unknown()).default({}),
+  projects: mapOrArray(projectConfigSchema).default([]),
+  policies: nullableRecord().default({}),
+  adapters: nullableRecord().default({}),
+  users: mapOrArray(userConfigSchema).default([]),
+  runtimes: mapOrArray(runtimeConfigSchema).default([]),
+  runtime_settings: nullableRecord().default({}),
 });
 
 export interface AppConfig {

@@ -17,7 +17,7 @@ export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied';
 
-export type RuntimeType = 'local' | 'wsl' | 'ssh' | 'hyperv' | 'vmware' | 'docker' | 'server';
+export type RuntimeType = 'local' | 'wsl' | 'ssh' | 'hyperv' | 'vmware' | 'docker' | 'server' | 'connector';
 
 export interface ChatEvent {
   platform: Platform;
