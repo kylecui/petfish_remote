@@ -155,9 +155,12 @@ export class ConnectorGateway extends EventEmitter {
     ws.on('close', () => {
       clearTimeout(authTimeout);
       if (connectorId) {
-        this.registry.unregister(connectorId);
-        this.emit('connector:change', connectorId, undefined);
-        console.log(`Connector disconnected: ${connectorId}`);
+        const current = this.registry.get(connectorId);
+        if (current && current.ws === ws) {
+          this.registry.unregister(connectorId);
+          this.emit('connector:change', connectorId, undefined);
+          console.log(`Connector disconnected: ${connectorId}`);
+        }
       }
     });
 
