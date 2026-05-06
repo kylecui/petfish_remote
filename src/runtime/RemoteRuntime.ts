@@ -25,19 +25,19 @@ export class RemoteRuntime implements RuntimeConnector {
 
   public constructor(
     public readonly id: string,
-    private readonly connectorId: string,
+    private readonly connectorId: string | undefined,
     private readonly gateway: ConnectorGateway,
   ) {
     this.wireGatewayHandlers();
   }
 
   public async healthCheck(): Promise<RuntimeHealth> {
-    const info = this.gateway.registry.get(this.connectorId);
+    const info = this.resolveConnector();
     return {
       ok: !!info,
       runtimeId: this.id,
       opencodeAvailable: !!info,
-      message: info ? `Connected from ${info.hostname}` : `Connector ${this.connectorId} not connected`,
+      message: info ? `Connected from ${info.hostname}` : `No connector available for runtime ${this.id}`,
     };
   }
 
@@ -49,13 +49,18 @@ export class RemoteRuntime implements RuntimeConnector {
 
     const maxRetries = 3;
     const retryDelays = [5000, 10000, 15000];
+    let resolvedConnectorId: string | undefined;
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const info = this.gateway.registry.get(this.connectorId);
-      if (info) break;
-      if (attempt === maxRetries) {
-        return Promise.reject(new Error(`Connector ${this.connectorId} is not connected`));
+      const info = this.resolveConnector(command.projectId);
+      if (info) {
+        resolvedConnectorId = info.connectorId;
+        break;
       }
-      console.log(`[remote] Connector ${this.connectorId} not connected, retry ${attempt + 1}/${maxRetries} in ${retryDelays[attempt]}ms...`);
+      if (attempt === maxRetries) {
+        return Promise.reject(new Error(`No connector available for runtime ${this.id} (project: ${command.projectId ?? 'unknown'})`));
+      }
+      console.log(`[remote] No connector for runtime ${this.id}, retry ${attempt + 1}/${maxRetries} in ${retryDelays[attempt]}ms...`);
       await new Promise(r => setTimeout(r, retryDelays[attempt]));
     }
 
@@ -80,20 +85,21 @@ export class RemoteRuntime implements RuntimeConnector {
         env: command.env,
       };
 
-      console.log(`[remote] Sending task.start to connector=${this.connectorId} taskId=${taskId} instruction=${(command.instruction ?? command.command).slice(0, 80)}...`);
+      console.log(`[remote] Sending task.start to connector=${resolvedConnectorId} taskId=${taskId} instruction=${(command.instruction ?? command.command).slice(0, 80)}...`);
       const envelope = createEnvelope(MSG.TASK_START, payload as unknown as Record<string, unknown>, taskId);
-      const sent = this.gateway.sendToConnector(this.connectorId, envelope);
+      const sent = this.gateway.sendToConnector(resolvedConnectorId!, envelope);
       console.log(`[remote] sendToConnector result: ${sent}`);
       if (!sent) {
         this.pending.delete(taskId);
-        reject(new Error(`Failed to send task to connector ${this.connectorId}`));
+        reject(new Error(`Failed to send task to connector ${resolvedConnectorId}`));
       }
     });
   }
 
   public async stop(taskId: string): Promise<void> {
     const envelope = createEnvelope(MSG.TASK_CONTROL, { taskId, action: 'cancel' }, taskId);
-    this.gateway.sendToConnector(this.connectorId, envelope);
+    const connectorId = this.connectorId ?? this.resolveConnector()?.connectorId;
+    if (connectorId) this.gateway.sendToConnector(connectorId, envelope);
     const pending = this.pending.get(taskId);
     if (pending) {
       this.pending.delete(taskId);
@@ -107,9 +113,20 @@ export class RemoteRuntime implements RuntimeConnector {
     }
   }
 
+  private resolveConnector(projectId?: string): { connectorId: string; hostname: string } | undefined {
+    if (this.connectorId) {
+      const info = this.gateway.registry.get(this.connectorId);
+      if (info) return info;
+    }
+    if (projectId) {
+      const info = this.gateway.registry.findByProject(projectId);
+      if (info) return info;
+    }
+    return undefined;
+  }
+
   private wireGatewayHandlers(): void {
-    this.gateway.on('task:output', (connectorId: string, payload: TaskOutputPayload) => {
-      if (connectorId !== this.connectorId) return;
+    this.gateway.on('task:output', (_connectorId: string, payload: TaskOutputPayload) => {
       const pending = this.pending.get(payload.taskId);
       if (!pending) return;
       if (payload.stream === 'stdout') {
@@ -120,8 +137,7 @@ export class RemoteRuntime implements RuntimeConnector {
       pending.command.onOutput?.(payload.chunk, payload.stream);
     });
 
-    this.gateway.on('task:complete', (connectorId: string, payload: TaskCompletePayload) => {
-      if (connectorId !== this.connectorId) return;
+    this.gateway.on('task:complete', (_connectorId: string, payload: TaskCompletePayload) => {
       const pending = this.pending.get(payload.taskId);
       if (!pending) return;
       this.pending.delete(payload.taskId);
@@ -134,8 +150,7 @@ export class RemoteRuntime implements RuntimeConnector {
       });
     });
 
-    this.gateway.on('task:fail', (connectorId: string, payload: TaskFailPayload) => {
-      if (connectorId !== this.connectorId) return;
+    this.gateway.on('task:fail', (_connectorId: string, payload: TaskFailPayload) => {
       const pending = this.pending.get(payload.taskId);
       if (!pending) return;
       this.pending.delete(payload.taskId);

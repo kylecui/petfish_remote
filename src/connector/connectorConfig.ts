@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
+import { hostname } from 'node:os';
 
 import { parse } from 'yaml';
 import { z } from 'zod';
@@ -11,7 +12,7 @@ const projectSchema = z.object({
 });
 
 const configSchema = z.object({
-  connectorId: z.string(),
+  connectorId: z.string().default('auto'),
   serverUrl: z.string(),
   token: z.string(),
   reconnectIntervalMs: z.number().default(5000),
@@ -30,5 +31,15 @@ export function loadConnectorConfig(configPath?: string): ConnectorConfig {
 
   const raw = readFileSync(filePath, 'utf-8');
   const parsed: unknown = parse(raw);
-  return configSchema.parse(parsed);
+  const config = configSchema.parse(parsed);
+
+  if (config.connectorId === 'auto') {
+    const host = hostname().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const projectSuffix = config.projects.length === 1
+      ? config.projects[0].id
+      : basename(process.cwd());
+    config.connectorId = `${host}-${projectSuffix}`;
+  }
+
+  return config;
 }

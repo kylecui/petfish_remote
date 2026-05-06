@@ -60,8 +60,8 @@ if (config.gateway.enabled) {
   });
 
   for (const rt of config.runtimes) {
-    if (rt.type === 'connector' && rt.host) {
-      const remote = new RemoteRuntime(rt.id, rt.host, gateway);
+    if (rt.type === 'connector') {
+      const remote = new RemoteRuntime(rt.id, rt.host ?? undefined, gateway);
       runtimeRouter.registerConnector(rt.id, remote);
     }
   }
