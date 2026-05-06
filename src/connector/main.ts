@@ -1,7 +1,7 @@
 import { loadConnectorConfig, type ConnectorProjectConfig } from './connectorConfig.js';
 import { ConnectorClient } from './ConnectorClient.js';
 import { LocalTaskExecutor } from './LocalTaskExecutor.js';
-import { SessionBridge } from './SessionBridge.js';
+import { createBridge, type AgentBridge } from './bridges/index.js';
 
 const configPath = process.argv[2] ?? undefined;
 
@@ -17,31 +17,30 @@ try {
 const projectMap = new Map<string, ConnectorProjectConfig>(config.projects.map((p) => [p.id, p]));
 const executor = new LocalTaskExecutor(projectMap);
 
-let sessionBridge: SessionBridge | undefined;
+let bridge: AgentBridge | undefined;
 
 async function start() {
-  if (process.env['OPENCODE_PID']) {
-    sessionBridge = new SessionBridge({});
-    try {
-      await sessionBridge.init();
-      console.log('SessionBridge mode: routing tasks to active opencode session');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`SessionBridge init failed (${msg}), falling back to process spawn mode`);
-      sessionBridge = undefined;
+  try {
+    bridge = await createBridge({ agent: 'auto' });
+    if (bridge) {
+      console.log(`${bridge.agentType} bridge active: routing tasks to agent session`);
     }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`Bridge init failed (${msg}), falling back to process spawn mode`);
+    bridge = undefined;
   }
 
-  const client = new ConnectorClient(config!, executor, sessionBridge);
+  const client = new ConnectorClient(config!, executor, bridge);
 
   process.once('SIGINT', () => {
     console.log('Shutting down connector...');
-    sessionBridge?.stop();
+    bridge?.stop();
     client.stop();
   });
   process.once('SIGTERM', () => {
     console.log('Shutting down connector...');
-    sessionBridge?.stop();
+    bridge?.stop();
     client.stop();
   });
 

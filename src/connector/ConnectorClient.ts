@@ -19,7 +19,7 @@ import {
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
-import type { SessionBridge } from './SessionBridge.js';
+import type { AgentBridge } from './bridges/AgentBridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const localPkgPath = resolve(__dirname, '../../package.json');
@@ -48,7 +48,7 @@ export class ConnectorClient {
   public constructor(
     private readonly config: ConnectorConfig,
     private readonly executor: LocalTaskExecutor,
-    private readonly sessionBridge?: SessionBridge,
+    private readonly sessionBridge?: AgentBridge,
   ) {
     this.reconnectDelay = config.reconnectIntervalMs;
 
@@ -234,11 +234,11 @@ export class ConnectorClient {
 
     if (this.sessionBridge) {
       const instruction = payload.rawInstruction ?? payload.instruction;
-      console.log(`[task] routing to SessionBridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
+      console.log(`[task] routing to AgentBridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
       this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
       const ok = this.sessionBridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
       if (!ok) {
-        console.warn(`[task] SessionBridge.prompt returned false for taskId=${payload.taskId}`);
+        console.warn(`[task] AgentBridge.prompt returned false for taskId=${payload.taskId}`);
       }
       return;
     }
