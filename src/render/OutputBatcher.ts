@@ -10,12 +10,14 @@ export class OutputBatcher {
   private messageCount = 0;
   private totalChars = 0;
   private finished = false;
+  private firstFlush = true;
 
   public constructor(
     private readonly sendFn: SendFn,
     private readonly taskId: string,
     private readonly flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS,
     private readonly maxBufferSize = DEFAULT_MAX_BUFFER_SIZE,
+    private readonly projectLabel?: string,
   ) {}
 
   public append(chunk: string): void {
@@ -41,7 +43,8 @@ export class OutputBatcher {
     }
 
     const status = exitCode === 0 ? '✅ completed' : '❌ failed';
-    await this.sendFn(`Task ${this.taskId} ${status} (${this.totalChars} chars, ${this.messageCount} messages)`);
+    const prefix = this.projectLabel ? `📂 *${this.projectLabel}* · ` : '';
+    await this.sendFn(`${prefix}Task ${this.taskId} ${status} (${this.totalChars} chars, ${this.messageCount} messages)`);
   }
 
   public async fail(error: string): Promise<void> {
@@ -52,7 +55,7 @@ export class OutputBatcher {
       await this.flush();
     }
 
-    await this.sendFn(`Task ${this.taskId} ❌ error: ${error}`);
+    await this.sendFn(`${this.projectLabel ? `📂 *${this.projectLabel}* · ` : ''}Task ${this.taskId} ❌ error: ${error}`);
   }
 
   public dispose(): void {
@@ -64,9 +67,14 @@ export class OutputBatcher {
     this.clearTimer();
     if (this.buffer.length === 0) return;
 
-    const text = this.buffer.length > TELEGRAM_MAX_MESSAGE_LENGTH - 50
+    let text = this.buffer.length > TELEGRAM_MAX_MESSAGE_LENGTH - 50
       ? this.buffer.slice(0, TELEGRAM_MAX_MESSAGE_LENGTH - 50) + '\n...(truncated)'
       : this.buffer;
+
+    if (this.firstFlush && this.projectLabel) {
+      text = `📂 *${this.projectLabel}*\n${text}`;
+      this.firstFlush = false;
+    }
 
     this.buffer = '';
     this.messageCount++;

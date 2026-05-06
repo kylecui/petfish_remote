@@ -206,11 +206,14 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
         platform: 'telegram',
         chat_id: event.chat_id,
         reply_to: event.message_id,
-        message_type: 'text',
+        message_type: 'markdown',
         text,
       });
     },
     task.task_id,
+    undefined,
+    undefined,
+    projectId,
   );
 
   const typingInterval = setInterval(() => {
