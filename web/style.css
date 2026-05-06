@@ -248,16 +248,10 @@ body.lang-en .copy-zh {
 }
 
 .brand-mark {
-	display: grid;
-	place-items: center;
 	width: 2.5rem;
 	height: 2.5rem;
 	border-radius: 50%;
-	background: linear-gradient(
-		135deg,
-		var(--color-primary),
-		var(--color-accent)
-	);
+	object-fit: contain;
 	box-shadow: 0 10px 24px var(--color-primary-alpha-35);
 }
 
