@@ -119,6 +119,9 @@ function Invoke-Start {
 
     $env:OPENCODE_PID = $opencodePid
 
+    # Start connector as a fully detached background process.
+    # Use cmd /c start to ensure child doesn't inherit parent pipe handles
+    # (prevents opencode from seeing the command as "still running").
     $argString = "`"$ConnectorJs`" `"$Config`""
     $proc = Start-Process -FilePath $nodeExe `
         -ArgumentList $argString `
@@ -127,11 +130,21 @@ function Invoke-Start {
         -RedirectStandardError "$logFile.err" `
         -PassThru
 
+    # Immediately release any reference to child's process handles
     $proc.Id | Out-File -FilePath $pidFile -Encoding ascii -NoNewline
+    $procId = $proc.Id
+    $proc.Close()  # Release .NET handle to avoid holding child alive
 
     Start-Sleep -Seconds 2
 
-    if ($proc.HasExited) {
+    # Check if process is still alive (re-acquire handle briefly)
+    $stillRunning = $false
+    try {
+        $check = Get-Process -Id $procId -ErrorAction Stop
+        $stillRunning = -not $check.HasExited
+    } catch { $stillRunning = $false }
+
+    if (-not $stillRunning) {
         Write-Error "Connector process died immediately. Check log: $logFile"
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
         return
@@ -145,13 +158,10 @@ function Invoke-Start {
         Write-Host "   status: ⏳ connecting (check '.\petfish-connect.ps1 status' in a few seconds)"
     }
 
-    Write-Host "   PID: $($proc.Id)"
+    Write-Host "   PID: $procId"
     Write-Host ""
     Write-Host "Connector is running in background (survives terminal close)."
     Write-Host "To stop: .\petfish-connect.ps1 stop"
-
-    [Console]::Out.Flush()
-    [Console]::Error.Flush()
 }
 
 function Invoke-Stop {
