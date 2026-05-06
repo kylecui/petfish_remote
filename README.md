@@ -43,6 +43,8 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 
 Done. Your connector is running. Send any message in Telegram to start controlling opencode.
 
+**Windows?** See the [full install & upgrade guide](./docs/install.md) for PowerShell instructions.
+
 ### 3. Use 使用
 
 | Action | How |
@@ -68,6 +70,7 @@ Done. Your connector is running. Send any message in Telegram to start controlli
 
 | | 中文 | English |
 |--|------|---------|
+| Install Guide | — | [Install & Upgrade](./docs/install.md) |
 | Client Guide | [客户端指南](./docs/zh/client-guide.md) | [Client Guide](./docs/en/client-guide.md) |
 | Server Guide | [服务器部署](./docs/zh/server-guide.md) | [Server Guide](./docs/en/server-guide.md) |
 | Web | [remote.petfish.ai](https://remote.petfish.ai) | [remote.petfish.ai](https://remote.petfish.ai) |

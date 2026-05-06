@@ -51,7 +51,8 @@ export class TelegramAdapter {
             return (
               '\n\n*Quick setup — paste in terminal or ask your AI agent to run:*\n' +
               `\`\`\`\ncurl -sSL ${serverUrl}/install | bash -s -- ${token}\n\`\`\`\n` +
-              '_Token expires in 5 minutes. Installs/upgrades automatically._'
+              '_Token expires in 5 minutes. Installs/upgrades automatically._\n\n' +
+              `Windows & full guide: ${serverUrl}/docs/install`
             );
           })()
         : '\n\nUse /pf to get started.';
