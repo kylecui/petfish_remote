@@ -18,7 +18,7 @@ interface PendingPrompt {
   onFail: FailCallback;
   startedAt: string;
   stdout: string;
-  sentTextLength: number;
+  sentTextLengths: Map<string, number>;
   settled: boolean;
 }
 
@@ -128,7 +128,7 @@ export class SessionBridge {
       onFail,
       startedAt: new Date().toISOString(),
       stdout: '',
-      sentTextLength: 0,
+      sentTextLengths: new Map(),
       settled: false,
     };
 
@@ -329,16 +329,19 @@ export class SessionBridge {
     // Skip user message text — only relay assistant responses
     if (part.messageID === entry.userMessageId) return;
 
+    const msgId = part.messageID!;
+    const sent = entry.sentTextLengths.get(msgId) ?? 0;
+
     let text: string;
     if (delta && delta.length > 0) {
       text = delta;
-    } else if (part.text && part.text.length > entry.sentTextLength) {
-      text = part.text.slice(entry.sentTextLength);
+    } else if (part.text && part.text.length > sent) {
+      text = part.text.slice(sent);
     } else {
       return;
     }
 
-    entry.sentTextLength += text.length;
+    entry.sentTextLengths.set(msgId, sent + text.length);
     entry.stdout += text;
     entry.onOutput(taskId, 'stdout', text);
   }
