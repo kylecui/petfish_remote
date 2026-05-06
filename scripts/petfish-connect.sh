@@ -240,6 +240,7 @@ do_setup() {
   local project_path=""
   local server_url="https://remote.petfish.ai"
   local opencode_bin=""
+  local agent="auto"
   local config_out="./connector.yaml"
 
   shift
@@ -251,6 +252,7 @@ do_setup() {
       --project-path) project_path="$2"; shift 2 ;;
       --server) server_url="$2"; shift 2 ;;
       --opencode-bin) opencode_bin="$2"; shift 2 ;;
+      --agent) agent="$2"; shift 2 ;;
       --output) config_out="$2"; shift 2 ;;
       *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -265,12 +267,24 @@ do_setup() {
     exit 1
   fi
 
+  case "$agent" in
+    auto|opencode|gemini|codex) ;;
+    *) echo "ERROR: --agent must be one of: auto, opencode, gemini, codex"; exit 1 ;;
+  esac
+
   project_name="${project_name:-$project_id}"
   project_path="${project_path:-$(pwd)}"
   project_path="$(cd "$project_path" && pwd)"
 
   if [ -z "$opencode_bin" ]; then
     opencode_bin="$(which opencode 2>/dev/null || echo "$HOME/.opencode/bin/opencode")"
+  fi
+
+  if [ "$agent" = "opencode" ] || [ "$agent" = "auto" ]; then
+    if ! pgrep -f "opencode.*--port" > /dev/null 2>&1; then
+      echo "   ⚠️  No running opencode instance detected."
+      echo "   The connector will keep retrying until opencode starts with --port."
+    fi
   fi
 
   local hostname
@@ -280,6 +294,7 @@ do_setup() {
   echo "   server: $server_url"
   echo "   project: $project_id ($project_name)"
   echo "   path: $project_path"
+  echo "   agent: $agent"
 
   local response
   response="$(curl -s -w "\n%{http_code}" -X POST "${server_url}/api/register" \
@@ -325,6 +340,7 @@ projects:
   - id: ${project_id}
     path: ${project_path}
     opencodeBin: ${opencode_bin}
+    agent: ${agent}
 YAML
 
   echo ""

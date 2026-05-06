@@ -23,6 +23,7 @@ Arguments:
 * `--project-path`: Optional. The path to your project.
 * `--project-name`: Optional. The display name of your project.
 * `--no-start`: Optional. Install without starting the connector.
+* `--agent <type>`: Optional. AI agent to use: auto, opencode, gemini, codex (default: auto)
 
 The default install path is `~/.petfish/remote/`. You can customize this by setting the `PETFISH_REMOTE_DIR` environment variable before installation.
 
@@ -47,6 +48,8 @@ Manage the connector daemon using the provided script:
 * Status: `petfish-connect.sh status`
 * Logs: `petfish-connect.sh logs`
 
+Note: On Windows, use `petfish-connect.ps1` instead of `petfish-connect.sh`.
+
 ## AI Agent Auto-Start Integration
 You can configure your OpenCode agent to launch the connector automatically. Add this template to your `AGENTS.md` file:
 
@@ -69,19 +72,40 @@ Manage your sessions via `@petfish_bot` on Telegram.
 * `/pf new`: Start a fresh session.
 * `/pf list`: List all available projects.
 
+## Multi-Agent Support
+
+PetFish Remote supports multiple AI coding agents.
+
+| Agent | Status |
+|-------|--------|
+| opencode | Stable |
+| gemini | Beta |
+| codex | Beta |
+
+To configure, use the `--agent` flag during installation or set the `agent:` field in your `connector.yaml` file. The installer runs a pre-flight check and warns if the selected agent binary is not found in your PATH.
+
 ## Configuration
 The `connector.yaml` file holds your configuration. 
 
 **SECURITY WARNING:** Do NOT commit `connector.yaml` to git. It contains sensitive credentials.
 
+Example `connector.yaml`:
+```yaml
+connectorToken: "your-token"
+serverUrl: "https://remote.petfish.ai"
+projectId: "my-project"
+agent: opencode
+```
+
 Key fields:
 * `connectorToken`: The persistent authentication token obtained after registration.
 * `serverUrl`: The target bot server (default: `https://remote.petfish.ai`).
 * `projectId`: Your project identifier.
+* `agent`: The AI agent to use (e.g., `opencode`).
 
 ## Environment Variables
 * `PETFISH_REMOTE_DIR`: Overrides the default `~/.petfish/remote/` installation directory.
-* `OPENCODE_PID`: The process ID of the OpenCode session.
+* `OPENCODE_PID`: The process ID of the OpenCode session (only relevant for the opencode agent).
 * `PETFISH_SERVER_URL`: The target server URL.
 
 ## Auto-Update

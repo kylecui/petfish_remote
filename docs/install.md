@@ -23,6 +23,8 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 4. Registers your machine with the bot server using the token
 5. Starts the connector daemon in the background
 
+To use a non-default AI agent, add --agent: `curl ... | bash -s -- <token> --agent gemini`
+
 **Get a token:** Send `/start` to [@petfish_bot](https://t.me/petfish_bot) on Telegram. Tokens expire in 5 minutes.
 
 ### Environment overrides
@@ -56,6 +58,7 @@ This exchanges the one-time token with the server and generates `connector.yaml`
 Optional parameters:
 - `-ProjectPath "C:\Users\you\code\my-project"` (defaults to current directory)
 - `-Server "https://your-server.com"` (defaults to `https://remote.petfish.ai`)
+- `-Agent gemini` (optional AI agent: auto, opencode, gemini, codex)
 
 ### Step 3 — Start the daemon
 
@@ -120,7 +123,7 @@ The daemon writes logs to `.runtime/connector.log` and PID to `.runtime/connecto
 
 ## Multi-Agent Support
 
-PetFish Remote supports multiple AI coding agents per project:
+PetFish Remote supports multiple AI coding agents per project. You can set this during installation using the `--agent` flag (or `-Agent` on Windows), or configure it manually:
 
 | Agent | Config value | Status |
 |-------|-------------|--------|
@@ -172,6 +175,7 @@ Remove-Item -Recurse -Force $env:USERPROFILE\.petfish\remote
 | Connector won't start | Check `scripts/petfish-connect.sh logs` or `.runtime/connector.log` |
 | Already running | `petfish-connect.sh status` shows PID — stop first, then restart |
 | Windows: "not digitally signed" | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| Agent binary not found | Selected agent (gemini/codex) not in PATH \| Install the agent CLI or use --agent auto |
 
 ## Links
 

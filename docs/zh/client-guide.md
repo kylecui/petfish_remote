@@ -36,6 +36,7 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token> [project-id]
 - `[project-id]`：（可选）为当前项目指定一个唯一标识符。
 - `--project-path`：（可选）绑定项目的绝对路径。
 - `--project-name`：（可选）项目易读名称。
+- `--agent <type>`：（可选）指定 AI Agent 类型：auto、opencode、gemini、codex（默认 auto）。
 - `--no-start`：（可选）仅安装，完成后不立即启动服务。
 
 **安装路径：**
@@ -57,7 +58,7 @@ npm run build
 
 ## 5. 日常使用
 
-系统提供 `petfish-connect.sh` 脚本管理 Connector 进程，默认以后台守护模式运行。
+系统提供 `petfish-connect.sh` 脚本管理 Connector 进程，默认以后台守护模式运行。Windows 用户请使用 `petfish-connect.ps1` 替代 `petfish-connect.sh`。
 
 - **启动服务**：`petfish-connect.sh start ./connector.yaml`
 - **停止服务**：`petfish-connect.sh stop`
@@ -88,7 +89,15 @@ npm run build
 - **新建会话**：发送 `/pf new` 开启一个干净的交互上下文。
 - **项目列表**：发送 `/pf list` 查看当前所有可用的本地项目。
 
-## 8. 配置文件说明
+## 8. 多 Agent 支持
+
+PetFish Remote 支持多种 AI 编程助手作为后端：
+
+- opencode（稳定）、Gemini CLI（Beta）、Codex CLI（Beta）
+- 安装时通过 `--agent` 参数选择，或在 `connector.yaml` 中配置 `agent` 字段
+- 安装脚本会在启动前检测所选 agent 二进制文件是否存在，如未找到会发出警告
+
+## 9. 配置文件说明
 
 `connector.yaml` 存储了客户端的核心配置，主要字段如下：
 
@@ -104,11 +113,12 @@ projects:
   - id: "my-webapp"
     name: "My WebApp"
     path: "/home/user/workspace/my-webapp"
+    agent: "opencode"
 ```
 
 *注意：切勿将包含真实 token 的 `connector.yaml` 提交到版本控制系统中。*
 
-## 9. 环境变量
+## 10. 环境变量
 
 Connector 运行时受以下环境变量影响：
 
@@ -116,11 +126,11 @@ Connector 运行时受以下环境变量影响：
 - `OPENCODE_PID`：绑定本地特定的 OpenCode 进程实例。
 - `PETFISH_SERVER_URL`：覆盖默认的服务器地址（适用于连接自部署服务器）。
 
-## 10. 版本更新
+## 11. 版本更新
 
 Connector 具备自动更新机制。每次启动时，程序会向 `/api/version` 接口请求最新版本号。若本地版本落后，Connector 将自动执行 `git pull` 与 `npm run build`，并使用新版本重新拉起服务。
 
-## 11. 故障排查
+## 12. 故障排查
 
 | 常见报错 / 现象 | 可能原因 | 解决方案 |
 | --- | --- | --- |
