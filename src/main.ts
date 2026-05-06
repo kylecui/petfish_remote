@@ -307,14 +307,21 @@ if (telegramToken) {
 
   telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent, telegramDeps);
 
-  process.once('SIGINT', () => {
-    void telegramAdapter?.stop();
-    void gateway?.stop();
-  });
-  process.once('SIGTERM', () => {
-    void telegramAdapter?.stop();
-    void gateway?.stop();
-  });
+  const shutdown = async (signal: string) => {
+    console.log(`Received ${signal}, shutting down...`);
+    const timeout = setTimeout(() => {
+      console.error('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    try {
+      await Promise.allSettled([telegramAdapter?.stop(), gateway?.stop()]);
+    } finally {
+      clearTimeout(timeout);
+      process.exit(0);
+    }
+  };
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
   void telegramAdapter.start();
   console.log('PetFish Remote started (Telegram polling)');

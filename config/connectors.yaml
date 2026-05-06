@@ -9,6 +9,10 @@ connector_tokens:
     connectorId: kyle-desktop
     token: "e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE"
     label: "Kyle's WSL desktop (DESKTOP-J3QIBUN)"
+  wildcard:
+    connectorId: "*"
+    token: "e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE"
+    label: "Wildcard token for self-registration"
 
 runtimes:
   kyle-desktop:
