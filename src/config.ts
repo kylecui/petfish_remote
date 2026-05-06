@@ -18,8 +18,8 @@ const projectConfigSchema = z.object({
   default_mode: executionModeSchema,
   default_agent: z.string().min(1).optional(),
   allowed_users: z.array(z.string().min(1)),
-  readme_files: z.array(z.string().min(1)),
-  test_commands: z.record(z.string(), z.string()),
+  readme_files: z.array(z.string().min(1)).default([]),
+  test_commands: z.record(z.string(), z.string()).default({}),
   risk_profile: z.string().min(1),
   secrets_policy: z.string().min(1),
 });

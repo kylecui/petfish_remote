@@ -1,95 +1,147 @@
-# Setup Guide — PetFish Remote Connector
+# PetFish Remote — Connector Setup (AI-Executable Runbook)
 
-Connect any opencode project to PetFish Remote so you can control it via Telegram.
+This document is designed for both humans and AI agents (opencode, Claude Code, etc.) to follow step-by-step.
 
-## Prerequisites
+## Overview
 
-- Node.js 18+
-- A running opencode session for your project
-- Access to the PetFish Remote server (token from admin)
+To control an opencode session via Telegram, you need:
+1. A `connector.yaml` in your project (client-side)
+2. The project registered in `config/projects.yaml` on the server
+3. The connector process running alongside opencode
 
-## Quick Start
+## Step 1: Create connector.yaml
 
-### 1. Create `connector.yaml` in your project root
+Create `connector.yaml` in your project root:
 
 ```yaml
 connectorId: auto
 serverUrl: "wss://remote.petfish.ai/ws/connector"
-token: "YOUR_CONNECTOR_TOKEN"
+token: "e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE"
 reconnectIntervalMs: 5000
 maxReconnectIntervalMs: 60000
 
 projects:
-  - id: my-project
-    path: /path/to/your/project
+  - id: YOUR_PROJECT_ID
+    path: /absolute/path/to/your/project
     opencodeBin: opencode
 ```
 
-- `connectorId: auto` generates an ID from your hostname + project ID
-- `token` — get this from the PetFish Remote admin
-- `projects[].id` — must match the project ID in the server's `config/projects.yaml`
+Replace:
+- `YOUR_PROJECT_ID` — a short slug (e.g., `my-app`, `petfish-tester`). Must match what you register on the server in Step 2.
+- `/absolute/path/to/your/project` — the full path to the project directory
 
-### 2. Start the connector alongside opencode
+## Step 2: Register Project on Server
 
-```bash
-# In a separate terminal/tmux pane:
-OPENCODE_PID=$(pgrep -f "opencode") \
-  /path/to/petfish_remote/scripts/petfish-connect.sh ./connector.yaml
-```
-
-Or use the built dist directly:
+SSH into the server and append your project to the config:
 
 ```bash
-OPENCODE_PID=$(pgrep -f "opencode") \
-  node /path/to/petfish_remote/dist/connector/main.js ./connector.yaml
+ssh root@38.55.160.238
 ```
 
-The `OPENCODE_PID` env var enables SessionBridge mode — tasks route to your active opencode session instead of spawning new processes.
-
-### 3. Register the project on the server
-
-Add to `config/projects.yaml` on the server:
+Edit `/opt/petfish-remote/config/projects.yaml` and add a new entry under `projects:`:
 
 ```yaml
-projects:
-  my-project:
-    name: "My Project"
-    runtime: "dynamic"
-    path: "/path/to/your/project"
+  YOUR_PROJECT_ID:
+    name: "Human-Readable Project Name"
+    runtime: "kyle-desktop"
+    path: "/absolute/path/to/your/project"
     default_mode: "read_only"
     allowed_users:
-      - "telegram:YOUR_TELEGRAM_ID"
+      - "telegram:685608515"
+    readme_files: []
+    test_commands: {}
+    risk_profile: "default"
+    secrets_policy: "deny_read"
 ```
 
-The `runtime` field can reference any defined runtime, or use a connector runtime with dynamic resolution.
+Required fields:
+- `name` — display name
+- `runtime` — use `"kyle-desktop"` (resolved dynamically by projectId)
+- `path` — project path on the machine running the connector
+- `default_mode` — `"read_only"` recommended
+- `allowed_users` — list of `"telegram:<user_id>"` strings
+- `readme_files` — list of readme paths (can be `[]`)
+- `test_commands` — map of command names to shell commands (can be `{}`)
+- `risk_profile` — `"default"`
+- `secrets_policy` — `"deny_read"`
 
-### 4. Use via Telegram
+Then restart the server:
 
-```
-/pf list          — see available projects
-/pf use my-project — bind chat to your project
-Hello, please check the tests  — sends to opencode
-```
-
-## Architecture
-
-```
-Your Machine                          Server (remote.petfish.ai)
-┌─────────────────┐                  ┌──────────────────────┐
-│ opencode (TUI)  │                  │ PetFish Remote       │
-│   port: auto    │                  │   Telegram Bot       │
-├─────────────────┤    WebSocket     │   ConnectorGateway   │
-│ Connector       │◄───────────────►│   ConnectorRegistry  │
-│ (SessionBridge) │  wss://.../ws   │   RuntimeRouter      │
-└─────────────────┘                  └──────────────────────┘
+```bash
+systemctl restart petfish-remote
 ```
 
-Each connector auto-registers with the server. The server resolves which connector to use based on project ID — no manual mapping needed.
+Verify it started:
+
+```bash
+systemctl is-active petfish-remote
+# Expected output: active
+```
+
+If it fails, check logs:
+
+```bash
+journalctl -u petfish-remote --no-pager -n 20
+```
+
+## Step 3: Start the Connector
+
+On the machine running opencode, in a **separate terminal or tmux pane**:
+
+```bash
+# Find the opencode PID
+OPENCODE_PID=$(pgrep -f "opencode" | head -1)
+
+# Start the connector
+cd /path/to/your/project
+OPENCODE_PID=$OPENCODE_PID node /home/kylecui/dev/petfish_remote/dist/connector/main.js ./connector.yaml
+```
+
+Or use the helper script:
+
+```bash
+OPENCODE_PID=$(pgrep -f "opencode" | head -1) \
+  /home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh ./connector.yaml
+```
+
+Expected output on success:
+
+```
+SessionBridge: session=ses_XXXXX port=NNNNN lastAssistant=msg_XXXXX
+SessionBridge mode: routing tasks to active opencode session
+PetFish Connector starting (auto-generated-id, 1 projects)
+Connecting to wss://remote.petfish.ai/ws/connector...
+Connected, sending registration...
+[ws-recv] type=registered taskId=none
+Registration accepted by server
+```
+
+If you see `AUTH_FAILED`, verify the token in `connector.yaml` matches the server's `config/connectors.yaml` wildcard entry.
+
+## Step 4: Use via Telegram (@petfish_bot)
+
+```
+/pf list                    — lists all registered projects
+/pf use YOUR_PROJECT_ID     — binds your chat to the project
+```
+
+After binding, any message you send goes directly to the opencode session.
 
 ## Troubleshooting
 
-**Auth failed**: Ensure your token matches a wildcard (`*`) or specific entry in the server's `config/connectors.yaml`.
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `AUTH_FAILED` | Token mismatch | Check `connector.yaml` token matches server's `config/connectors.yaml` |
+| `SessionBridge init failed` | OPENCODE_PID wrong or opencode not running | Verify with `ps -p $OPENCODE_PID -o comm=` |
+| Project not in `/pf list` | Not in server's `projects.yaml` | Add it and `systemctl restart petfish-remote` |
+| `Access denied` on `/pf use` | User not in `allowed_users` | Add `"telegram:YOUR_ID"` to project config |
+| Connector keeps reconnecting | Server down or network issue | Check `systemctl status petfish-remote` on server |
 
-**SessionBridge init failed**: Make sure `OPENCODE_PID` points to a running opencode process and its HTTP API is accessible.
+## Server Details
 
-**No connector available**: The connector must be running and connected before sending commands via Telegram.
+- **Host**: root@38.55.160.238
+- **Service**: petfish-remote (systemd)
+- **Config dir**: /opt/petfish-remote/config/
+- **Gateway port**: 9100 (WebSocket)
+- **Domain**: remote.petfish.ai
+- **Bot**: @petfish_bot
