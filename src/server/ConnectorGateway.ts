@@ -20,6 +20,8 @@ import {
   taskCompletePayloadSchema,
   taskFailPayloadSchema,
   taskOutputPayloadSchema,
+  taskQuestionPayloadSchema,
+  taskPermissionPayloadSchema,
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorAuth } from './ConnectorAuth.js';
 import { type ConnectorInfo, ConnectorRegistry } from './ConnectorRegistry.js';
@@ -189,6 +191,16 @@ export class ConnectorGateway extends EventEmitter {
     return false;
   }
 
+  public sendQuestionReply(connectorId: string, taskId: string, questionId: string, answers: string[][]): boolean {
+    const envelope = createEnvelope(MSG.QUESTION_REPLY, { taskId, questionId, answers }, taskId);
+    return this.sendToConnector(connectorId, envelope);
+  }
+
+  public sendPermissionReply(connectorId: string, taskId: string, permissionId: string, allowed: boolean): boolean {
+    const envelope = createEnvelope(MSG.PERMISSION_REPLY, { taskId, permissionId, allowed }, taskId);
+    return this.sendToConnector(connectorId, envelope);
+  }
+
   private handleConnection(ws: WebSocket): void {
     let authenticated = false;
     let connectorId: string | undefined;
@@ -313,6 +325,20 @@ export class ConnectorGateway extends EventEmitter {
         const payload = taskFailPayloadSchema.safeParse(envelope.payload);
         if (payload.success) {
           this.emit('task:fail', connectorId, payload.data);
+        }
+        break;
+      }
+      case MSG.TASK_QUESTION: {
+        const payload = taskQuestionPayloadSchema.safeParse(envelope.payload);
+        if (payload.success) {
+          this.emit('task:question', connectorId, payload.data);
+        }
+        break;
+      }
+      case MSG.TASK_PERMISSION: {
+        const payload = taskPermissionPayloadSchema.safeParse(envelope.payload);
+        if (payload.success) {
+          this.emit('task:permission', connectorId, payload.data);
         }
         break;
       }

@@ -1,9 +1,12 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 
 import type { ChatEvent, ChatResponse, ProjectConfig } from '../../types.js';
+import type { TaskQuestionPayload } from '../../protocol/connectorProtocol.js';
 import { telegramContextToChatEvent } from './telegramTypes.js';
 
 export type TelegramEventHandler = (event: ChatEvent) => Promise<void> | void;
+export type QuestionReplyHandler = (questionId: string, answers: string[][]) => void;
+export type PermissionReplyHandler = (permissionId: string, allowed: boolean) => void;
 
 export interface TelegramDeps {
   listProjects: (userId: string) => ProjectConfig[];
@@ -13,8 +16,20 @@ export interface TelegramDeps {
   generateRegistrationToken?: (userId: string) => string;
 }
 
+interface PendingQuestion {
+  questionId: string;
+  chatId: string;
+  messageId: number;
+  questions: TaskQuestionPayload['questions'];
+  selectedPerQuestion: Map<number, Set<string>>;
+}
+
 export class TelegramAdapter {
   private readonly bot: Bot<Context>;
+  private readonly pendingQuestions = new Map<string, PendingQuestion>();
+  private readonly chatToPendingQuestion = new Map<string, string>();
+  private onQuestionReply: QuestionReplyHandler | undefined;
+  private onPermissionReply: PermissionReplyHandler | undefined;
 
   public constructor(
     token: string,
@@ -162,6 +177,53 @@ export class TelegramAdapter {
       );
     });
 
+    this.bot.callbackQuery(/^q:(.+):(\d+):(\d+)$/, async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const [, questionId, qiStr, oiStr] = ctx.match!;
+      const qi = Number(qiStr);
+      const oi = Number(oiStr);
+
+      const pending = this.pendingQuestions.get(questionId);
+      if (!pending) return;
+
+      const question = pending.questions[qi];
+      if (!question) return;
+      const option = question.options[oi];
+      if (!option) return;
+
+      this.pendingQuestions.delete(questionId);
+      this.chatToPendingQuestion.delete(pending.chatId);
+
+      const answers: string[][] = pending.questions.map((_, i) => {
+        if (i === qi) return [option.label];
+        return [];
+      });
+
+      await ctx.editMessageText(
+        `🤔 *Agent asked:* ${question.header || question.question}\n✅ You answered: *${option.label}*`,
+        { parse_mode: 'Markdown' },
+      );
+
+      if (this.onQuestionReply) {
+        this.onQuestionReply(questionId, answers);
+      }
+    });
+
+    this.bot.callbackQuery(/^perm:(.+):(allow|deny)$/, async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const [, permissionId, action] = ctx.match!;
+      const allowed = action === 'allow';
+
+      await ctx.editMessageText(
+        allowed ? '🔐 ✅ Permission *granted*' : '🔐 ❌ Permission *denied*',
+        { parse_mode: 'Markdown' },
+      );
+
+      if (this.onPermissionReply) {
+        this.onPermissionReply(permissionId, allowed);
+      }
+    });
+
     this.bot.on('callback_query:data', async (ctx) => {
       await ctx.answerCallbackQuery();
     });
@@ -219,5 +281,98 @@ export class TelegramAdapter {
     const id = Number(chatId);
     if (Number.isNaN(id)) return;
     await this.bot.api.sendChatAction(id, 'typing').catch(() => {});
+  }
+
+  public setQuestionReplyHandler(handler: QuestionReplyHandler): void {
+    this.onQuestionReply = handler;
+  }
+
+  public setPermissionReplyHandler(handler: PermissionReplyHandler): void {
+    this.onPermissionReply = handler;
+  }
+
+  public async sendQuestion(chatId: string, payload: TaskQuestionPayload): Promise<void> {
+    const id = Number(chatId);
+    if (Number.isNaN(id)) return;
+
+    for (let qi = 0; qi < payload.questions.length; qi++) {
+      const q = payload.questions[qi];
+      const keyboard = new InlineKeyboard();
+
+      for (let oi = 0; oi < q.options.length; oi++) {
+        const opt = q.options[oi];
+        keyboard.text(opt.label, `q:${payload.questionId}:${qi}:${oi}`);
+        if (oi % 2 === 1) keyboard.row();
+      }
+
+      if (q.options.length % 2 === 1) keyboard.row();
+
+      let text = `🤔 *Agent is asking:*\n\n`;
+      if (q.header) text += `*${q.header}*\n`;
+      text += q.question;
+      if (q.custom) text += '\n\n💬 Or reply with your own answer.';
+
+      const sent = await this.bot.api.sendMessage(id, text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+
+      const pending: PendingQuestion = {
+        questionId: payload.questionId,
+        chatId,
+        messageId: sent.message_id,
+        questions: payload.questions,
+        selectedPerQuestion: new Map([[qi, new Set<string>()]]),
+      };
+      this.pendingQuestions.set(payload.questionId, pending);
+      this.chatToPendingQuestion.set(chatId, payload.questionId);
+    }
+  }
+
+  public async sendPermission(chatId: string, _taskId: string, permissionId: string, tool: string, input: Record<string, unknown>): Promise<void> {
+    const id = Number(chatId);
+    if (Number.isNaN(id)) return;
+
+    const keyboard = new InlineKeyboard()
+      .text('✅ Allow', `perm:${permissionId}:allow`)
+      .text('❌ Deny', `perm:${permissionId}:deny`);
+
+    let inputSummary = '';
+    if (input['command']) {
+      inputSummary = `\`${String(input['command'])}\``;
+    } else if (input['filePath']) {
+      inputSummary = `file: \`${String(input['filePath'])}\``;
+    } else {
+      const keys = Object.keys(input).slice(0, 3);
+      inputSummary = keys.map(k => `${k}: ${JSON.stringify(input[k]).slice(0, 60)}`).join('\n');
+    }
+
+    const text = `🔐 *Agent wants to run:*\n\n\`${tool}\`${inputSummary ? `\n${inputSummary}` : ''}`;
+
+    await this.bot.api.sendMessage(id, text, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
+  public hasPendingQuestion(chatId: string): boolean {
+    return this.chatToPendingQuestion.has(chatId);
+  }
+
+  public handleCustomTextAnswer(chatId: string, text: string): boolean {
+    const questionId = this.chatToPendingQuestion.get(chatId);
+    if (!questionId) return false;
+
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending) return false;
+
+    this.pendingQuestions.delete(questionId);
+    this.chatToPendingQuestion.delete(chatId);
+
+    const answers: string[][] = pending.questions.map(() => [text]);
+    if (this.onQuestionReply) {
+      this.onQuestionReply(questionId, answers);
+    }
+    return true;
   }
 }

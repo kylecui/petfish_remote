@@ -19,6 +19,7 @@ import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
+import type { TaskQuestionPayload, TaskPermissionPayload } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse } from './types.js';
 
@@ -53,6 +54,9 @@ for (const rt of config.runtimes) {
 
 let gateway: ConnectorGateway | undefined;
 let registrationService: RegistrationService | undefined;
+const taskIdToChatId = new Map<string, string>();
+const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
+const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 
 if (config.gateway.enabled) {
   const auth = new ConnectorAuth(config.connector_tokens);
@@ -133,6 +137,30 @@ if (config.gateway.enabled) {
     }
   });
 
+  gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
+    if (!telegramAdapter) return;
+    questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
+    const chatId = taskIdToChatId.get(payload.taskId);
+    if (!chatId) {
+      console.warn(`[question] No chatId found for taskId=${payload.taskId}`);
+      return;
+    }
+    console.log(`[question] Relaying question ${payload.questionId} to chat ${chatId}`);
+    void telegramAdapter.sendQuestion(chatId, payload);
+  });
+
+  gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
+    if (!telegramAdapter) return;
+    permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
+    const chatId = taskIdToChatId.get(payload.taskId);
+    if (!chatId) {
+      console.warn(`[permission] No chatId found for taskId=${payload.taskId}`);
+      return;
+    }
+    console.log(`[permission] Relaying permission ${payload.permissionId} to chat ${chatId}`);
+    void telegramAdapter.sendPermission(chatId, payload.taskId, payload.permissionId, payload.tool, payload.input);
+  });
+
   void gateway.start();
   console.log(`ConnectorGateway started on :${config.gateway.port}${config.gateway.path}`);
 }
@@ -143,6 +171,11 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
   const userId = `${event.platform}:${event.user_id}`;
 
   auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'message_received', payload: event.text });
+
+  if (telegramAdapter && !event.text.startsWith('/') && telegramAdapter.hasPendingQuestion(event.chat_id)) {
+    telegramAdapter.handleCustomTextAnswer(event.chat_id, event.text);
+    return;
+  }
 
   let parsed;
   try {
@@ -217,6 +250,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         mode: 'read_only',
       });
       sessionManager.updateTask(event.chat_id, task.task_id);
+      taskIdToChatId.set(task.task_id, event.chat_id);
 
       if (telegramAdapter) {
         void telegramAdapter.sendTyping(event.chat_id);
@@ -330,6 +364,31 @@ if (telegramToken) {
   };
 
   telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent, telegramDeps);
+
+  if (gateway) {
+    const gw = gateway;
+    telegramAdapter.setQuestionReplyHandler((questionId, answers) => {
+      const ctx = questionIdToContext.get(questionId);
+      if (!ctx) {
+        console.warn(`[question-reply] No context found for questionId=${questionId}`);
+        return;
+      }
+      questionIdToContext.delete(questionId);
+      console.log(`[question-reply] Sending answer for ${questionId} to connector ${ctx.connectorId}`);
+      gw.sendQuestionReply(ctx.connectorId, ctx.taskId, questionId, answers);
+    });
+
+    telegramAdapter.setPermissionReplyHandler((permissionId, allowed) => {
+      const ctx = permissionIdToContext.get(permissionId);
+      if (!ctx) {
+        console.warn(`[permission-reply] No context found for permissionId=${permissionId}`);
+        return;
+      }
+      permissionIdToContext.delete(permissionId);
+      console.log(`[permission-reply] Sending ${allowed ? 'allow' : 'deny'} for ${permissionId} to connector ${ctx.connectorId}`);
+      gw.sendPermissionReply(ctx.connectorId, ctx.taskId, permissionId, allowed);
+    });
+  }
 
   const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);

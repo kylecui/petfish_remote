@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process';
 import http from 'node:http';
 
+import type { TaskQuestionPayload, TaskPermissionPayload } from '../protocol/connectorProtocol.js';
+
 export interface SessionBridgeConfig {
   opencodeBin?: string;
 }
@@ -8,6 +10,8 @@ export interface SessionBridgeConfig {
 export type OutputCallback = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void;
 export type CompleteCallback = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => void;
 export type FailCallback = (taskId: string, error: string) => void;
+export type QuestionCallback = (taskId: string, payload: TaskQuestionPayload) => void;
+export type PermissionCallback = (taskId: string, payload: TaskPermissionPayload) => void;
 
 interface PendingPrompt {
   taskId: string;
@@ -39,8 +43,18 @@ export class SessionBridge {
   private lastCompletedAssistantId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
+  private onQuestion: QuestionCallback | undefined;
+  private onPermission: PermissionCallback | undefined;
 
   public constructor(_config: SessionBridgeConfig) {}
+
+  public setQuestionCallback(cb: QuestionCallback): void {
+    this.onQuestion = cb;
+  }
+
+  public setPermissionCallback(cb: PermissionCallback): void {
+    this.onPermission = cb;
+  }
 
   public async init(): Promise<void> {
     this.opencodePort = this.discoverPort();
@@ -377,6 +391,10 @@ export class SessionBridge {
       this.handleSessionIdle(event.properties);
     } else if (event.type === 'session.status') {
       this.handleSessionStatus(event.properties);
+    } else if (event.type === 'question.asked') {
+      this.handleQuestionAsked(event.properties);
+    } else if (event.type === 'permission.asked') {
+      this.handlePermissionAsked(event.properties);
     }
   }
 
@@ -550,6 +568,138 @@ export class SessionBridge {
       }
       this.pending.delete(taskId);
     }
+  }
+
+  private handleQuestionAsked(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const questionId = props['id'] as string | undefined;
+    const sessionID = props['sessionID'] as string | undefined;
+    const questions = props['questions'] as Array<{
+      question: string; header: string;
+      options: Array<{ label: string; description: string }>;
+      multiple: boolean; custom: boolean;
+    }> | undefined;
+
+    if (!questionId || !questions || questions.length === 0) return;
+    if (sessionID && sessionID !== this.sessionId) return;
+
+    // Find active task to associate this question with
+    let taskId: string | undefined;
+    if (this.pending.size === 1) {
+      const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
+      if (!onlyEntry.settled) taskId = onlyTaskId;
+    } else if (this.pending.size > 1) {
+      // Use the most recent non-settled task
+      for (const [tid, entry] of this.pending) {
+        if (!entry.settled) { taskId = tid; break; }
+      }
+    }
+
+    if (!taskId) {
+      // No active task — use a synthetic ID so we can still relay
+      taskId = `question_${questionId}`;
+    }
+
+    // Cancel settle timer — session stays busy until question is answered
+    this.cancelSettleTimer(taskId);
+
+    if (this.onQuestion) {
+      this.onQuestion(taskId, {
+        taskId,
+        questionId,
+        sessionId: sessionID ?? this.sessionId ?? '',
+        questions: questions.map(q => ({
+          question: q.question,
+          header: q.header,
+          options: q.options ?? [],
+          multiple: q.multiple ?? false,
+          custom: q.custom ?? true,
+        })),
+      });
+    }
+  }
+
+  private handlePermissionAsked(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const permissionId = props['id'] as string | undefined;
+    const sessionID = props['sessionID'] as string | undefined;
+    const tool = props['tool'] as string | undefined;
+    const input = props['input'] as Record<string, unknown> | undefined;
+
+    if (!permissionId || !tool) return;
+    if (sessionID && sessionID !== this.sessionId) return;
+
+    let taskId: string | undefined;
+    if (this.pending.size === 1) {
+      const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
+      if (!onlyEntry.settled) taskId = onlyTaskId;
+    } else if (this.pending.size > 1) {
+      for (const [tid, entry] of this.pending) {
+        if (!entry.settled) { taskId = tid; break; }
+      }
+    }
+
+    if (!taskId) {
+      taskId = `permission_${permissionId}`;
+    }
+
+    this.cancelSettleTimer(taskId);
+
+    if (this.onPermission) {
+      this.onPermission(taskId, {
+        taskId,
+        permissionId,
+        sessionId: sessionID ?? this.sessionId ?? '',
+        tool,
+        input: input ?? {},
+      });
+    }
+  }
+
+  public answerQuestion(questionId: string, answers: string[][]): void {
+    if (!this.opencodePort) return;
+    const body = JSON.stringify({ answers });
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: Number(this.opencodePort),
+        path: `/question/${questionId}/reply`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        res.resume();
+        console.log(`[SessionBridge] answerQuestion ${questionId} → ${res.statusCode}`);
+      },
+    );
+    req.on('error', (err) => {
+      console.warn(`[SessionBridge] answerQuestion failed: ${err.message}`);
+    });
+    req.write(body);
+    req.end();
+  }
+
+  public answerPermission(permissionId: string, allowed: boolean): void {
+    if (!this.opencodePort) return;
+    const body = JSON.stringify({ allowed });
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: Number(this.opencodePort),
+        path: `/permission/${permissionId}/reply`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        res.resume();
+        console.log(`[SessionBridge] answerPermission ${permissionId} allowed=${allowed} → ${res.statusCode}`);
+      },
+    );
+    req.on('error', (err) => {
+      console.warn(`[SessionBridge] answerPermission failed: ${err.message}`);
+    });
+    req.write(body);
+    req.end();
   }
 
   private discoverPort(): string | undefined {

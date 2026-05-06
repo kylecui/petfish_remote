@@ -89,6 +89,49 @@ export const resumeRunningPayloadSchema = z.object({
 
 export type ResumeRunningPayload = z.infer<typeof resumeRunningPayloadSchema>;
 
+export const taskQuestionPayloadSchema = z.object({
+  taskId: z.string(),
+  questionId: z.string(),
+  sessionId: z.string(),
+  questions: z.array(
+    z.object({
+      question: z.string(),
+      header: z.string(),
+      options: z.array(z.object({ label: z.string(), description: z.string() })),
+      multiple: z.boolean(),
+      custom: z.boolean(),
+    }),
+  ),
+});
+
+export type TaskQuestionPayload = z.infer<typeof taskQuestionPayloadSchema>;
+
+export const questionReplyPayloadSchema = z.object({
+  taskId: z.string(),
+  questionId: z.string(),
+  answers: z.array(z.array(z.string())),
+});
+
+export type QuestionReplyPayload = z.infer<typeof questionReplyPayloadSchema>;
+
+export const taskPermissionPayloadSchema = z.object({
+  taskId: z.string(),
+  permissionId: z.string(),
+  sessionId: z.string(),
+  tool: z.string(),
+  input: z.record(z.unknown()),
+});
+
+export type TaskPermissionPayload = z.infer<typeof taskPermissionPayloadSchema>;
+
+export const permissionReplyPayloadSchema = z.object({
+  taskId: z.string(),
+  permissionId: z.string(),
+  allowed: z.boolean(),
+});
+
+export type PermissionReplyPayload = z.infer<typeof permissionReplyPayloadSchema>;
+
 // ---------------------------------------------------------------------------
 // Server → Connector messages
 // ---------------------------------------------------------------------------
@@ -144,6 +187,10 @@ export const MSG = {
   TASK_COMPLETE: 'task.complete',
   TASK_FAIL: 'task.fail',
   TASK_CONTROL: 'task.control',
+  TASK_QUESTION: 'task.question',
+  QUESTION_REPLY: 'question.reply',
+  TASK_PERMISSION: 'task.permission',
+  PERMISSION_REPLY: 'permission.reply',
   SESSION_NEW: 'session.new',
   RESUME_RUNNING: 'resume.running',
   UPGRADE_AVAILABLE: 'upgrade.available',
@@ -167,6 +214,10 @@ export const payloadSchemas: Record<string, z.ZodType> = {
   [MSG.TASK_COMPLETE]: taskCompletePayloadSchema,
   [MSG.TASK_FAIL]: taskFailPayloadSchema,
   [MSG.TASK_CONTROL]: taskControlPayloadSchema,
+  [MSG.TASK_QUESTION]: taskQuestionPayloadSchema,
+  [MSG.QUESTION_REPLY]: questionReplyPayloadSchema,
+  [MSG.TASK_PERMISSION]: taskPermissionPayloadSchema,
+  [MSG.PERMISSION_REPLY]: permissionReplyPayloadSchema,
   [MSG.RESUME_RUNNING]: resumeRunningPayloadSchema,
   [MSG.ERROR]: errorPayloadSchema,
 };

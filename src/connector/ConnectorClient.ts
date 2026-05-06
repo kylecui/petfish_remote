@@ -14,6 +14,8 @@ import {
   parseEnvelope,
   taskStartPayloadSchema,
   taskControlPayloadSchema,
+  questionReplyPayloadSchema,
+  permissionReplyPayloadSchema,
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
@@ -49,6 +51,15 @@ export class ConnectorClient {
     private readonly sessionBridge?: SessionBridge,
   ) {
     this.reconnectDelay = config.reconnectIntervalMs;
+
+    if (this.sessionBridge) {
+      this.sessionBridge.setQuestionCallback((taskId, payload) => {
+        this.send(createEnvelope(MSG.TASK_QUESTION, payload as unknown as Record<string, unknown>, taskId));
+      });
+      this.sessionBridge.setPermissionCallback((taskId, payload) => {
+        this.send(createEnvelope(MSG.TASK_PERMISSION, payload as unknown as Record<string, unknown>, taskId));
+      });
+    }
   }
 
   public start(): void {
@@ -156,6 +167,12 @@ export class ConnectorClient {
       case MSG.TASK_CONTROL:
         this.handleTaskControl(envelope);
         break;
+      case MSG.QUESTION_REPLY:
+        this.handleQuestionReply(envelope);
+        break;
+      case MSG.PERMISSION_REPLY:
+        this.handlePermissionReply(envelope);
+        break;
       case MSG.SESSION_NEW:
         this.handleSessionNew();
         break;
@@ -254,6 +271,24 @@ export class ConnectorClient {
     if (payload.action === 'cancel') {
       this.executor.cancel(payload.taskId);
     }
+  }
+
+  private handleQuestionReply(envelope: Envelope): void {
+    if (!this.sessionBridge) return;
+    const result = questionReplyPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { questionId, answers } = result.data;
+    console.log(`[task] question reply received questionId=${questionId}`);
+    this.sessionBridge.answerQuestion(questionId, answers);
+  }
+
+  private handlePermissionReply(envelope: Envelope): void {
+    if (!this.sessionBridge) return;
+    const result = permissionReplyPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { permissionId, allowed } = result.data;
+    console.log(`[task] permission reply received permissionId=${permissionId} allowed=${allowed}`);
+    this.sessionBridge.answerPermission(permissionId, allowed);
   }
 
   private send(envelope: Envelope): void {
