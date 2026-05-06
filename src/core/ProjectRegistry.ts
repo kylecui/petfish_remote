@@ -20,6 +20,9 @@ export class ProjectRegistry {
     if (!project) {
       return false;
     }
+    if (project.allowed_users.length === 0 || project.allowed_users.includes('*')) {
+      return true;
+    }
     return project.allowed_users.includes(userId);
   }
 

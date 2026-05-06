@@ -99,6 +99,27 @@ if (config.gateway.enabled) {
   runtimeRouter.registerConnector('connector', dynamicRuntime);
 
   gateway.on('connector:change', (connectorId: string, info: unknown) => {
+    if (info && typeof info === 'object' && 'projects' in info) {
+      const connInfo = info as { projects: Array<{ id: string; path: string }> };
+      for (const proj of connInfo.projects) {
+        if (!projectRegistry.getProject(proj.id)) {
+          projectRegistry.addProject({
+            id: proj.id,
+            name: proj.id,
+            runtime: 'connector',
+            path: proj.path,
+            default_mode: 'read_only',
+            allowed_users: [],
+            readme_files: [],
+            test_commands: {},
+            risk_profile: 'default',
+            secrets_policy: 'mask',
+          });
+          console.log(`[auto-register] Project ${proj.id} added from connector ${connectorId}`);
+        }
+      }
+    }
+
     if (!telegramAdapter) return;
     const status = info ? '🟢 online' : '🔴 offline';
     const adminChatId = process.env.PETFISH_ADMIN_CHAT_ID;
