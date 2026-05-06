@@ -2,6 +2,7 @@
 # petfish-connect.sh — Manage the petfish-remote connector daemon.
 #
 # Usage:
+#   petfish-connect.sh setup --token <token> --project-id <id> [options]
 #   petfish-connect.sh start [connector.yaml]  — Start connector as daemon
 #   petfish-connect.sh stop                    — Stop running connector
 #   petfish-connect.sh status                  — Show connector status
@@ -194,7 +195,112 @@ do_logs() {
   tail -50 "$log_file"
 }
 
+do_setup() {
+  local token=""
+  local project_id=""
+  local project_name=""
+  local project_path=""
+  local server_url="https://remote.petfish.ai"
+  local opencode_bin=""
+  local config_out="./connector.yaml"
+
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --token) token="$2"; shift 2 ;;
+      --project-id) project_id="$2"; shift 2 ;;
+      --project-name) project_name="$2"; shift 2 ;;
+      --project-path) project_path="$2"; shift 2 ;;
+      --server) server_url="$2"; shift 2 ;;
+      --opencode-bin) opencode_bin="$2"; shift 2 ;;
+      --output) config_out="$2"; shift 2 ;;
+      *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+  done
+
+  if [ -z "$token" ]; then
+    echo "ERROR: --token is required. Get one from /start in Telegram."
+    exit 1
+  fi
+  if [ -z "$project_id" ]; then
+    echo "ERROR: --project-id is required."
+    exit 1
+  fi
+
+  project_name="${project_name:-$project_id}"
+  project_path="${project_path:-$(pwd)}"
+  project_path="$(cd "$project_path" && pwd)"
+
+  if [ -z "$opencode_bin" ]; then
+    opencode_bin="$(which opencode 2>/dev/null || echo "$HOME/.opencode/bin/opencode")"
+  fi
+
+  local hostname
+  hostname="$(hostname)"
+
+  echo "><(((^> petfish-connect: registering with server..."
+  echo "   server: $server_url"
+  echo "   project: $project_id ($project_name)"
+  echo "   path: $project_path"
+
+  local response
+  response="$(curl -s -w "\n%{http_code}" -X POST "${server_url}/api/register" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"token\": \"${token}\",
+      \"projectId\": \"${project_id}\",
+      \"projectName\": \"${project_name}\",
+      \"projectPath\": \"${project_path}\",
+      \"hostname\": \"${hostname}\"
+    }")"
+
+  local http_code
+  http_code="$(echo "$response" | tail -1)"
+  local body
+  body="$(echo "$response" | sed '$d')"
+
+  if [ "$http_code" != "200" ]; then
+    echo "ERROR: Registration failed (HTTP $http_code)"
+    echo "  $body"
+    exit 1
+  fi
+
+  local connector_token
+  connector_token="$(echo "$body" | grep -o '"connectorToken":"[^"]*"' | cut -d'"' -f4)"
+  local ws_url
+  ws_url="$(echo "$body" | grep -o '"serverUrl":"[^"]*"' | cut -d'"' -f4)"
+
+  if [ -z "$connector_token" ]; then
+    echo "ERROR: No connectorToken in response"
+    echo "  $body"
+    exit 1
+  fi
+
+  cat > "$config_out" << YAML
+connectorId: auto
+serverUrl: "${ws_url}"
+token: "${connector_token}"
+reconnectIntervalMs: 5000
+maxReconnectIntervalMs: 60000
+
+projects:
+  - id: ${project_id}
+    path: ${project_path}
+    opencodeBin: ${opencode_bin}
+YAML
+
+  echo ""
+  echo "   ✅ Registration successful!"
+  echo "   Config written to: $config_out"
+  echo ""
+  echo "Start the connector with:"
+  echo "  petfish-connect.sh start $config_out"
+}
+
 case "${1:-}" in
+  setup)
+    do_setup "$@"
+    ;;
   start)
     do_start "${2:-$(pwd)/connector.yaml}"
     ;;
@@ -213,14 +319,18 @@ case "${1:-}" in
     do_logs "${2:-$(pwd)/connector.yaml}"
     ;;
   *)
-    echo "Usage: petfish-connect.sh {start|stop|restart|status|logs} [connector.yaml]"
+    echo "Usage: petfish-connect.sh {setup|start|stop|restart|status|logs} [connector.yaml]"
     echo ""
     echo "Commands:"
+    echo "  setup   — Register with server and generate connector.yaml"
     echo "  start   — Start connector as background daemon"
     echo "  stop    — Stop running connector"
     echo "  restart — Stop and start"
     echo "  status  — Show if running + recent log"
     echo "  logs    — Show last 50 log lines"
+    echo ""
+    echo "Setup:"
+    echo "  petfish-connect.sh setup --token <token> --project-id <id> [--project-path /path] [--server url]"
     exit 1
     ;;
 esac

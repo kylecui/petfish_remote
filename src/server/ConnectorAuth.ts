@@ -24,6 +24,12 @@ export class ConnectorAuth {
     }
   }
 
+  public addWildcardToken(token: string): void {
+    if (!this.wildcardTokens.includes(token)) {
+      this.wildcardTokens.push(token);
+    }
+  }
+
   public verify(connectorId: string, token: string): boolean {
     const expected = this.tokens.get(connectorId);
     if (expected) {

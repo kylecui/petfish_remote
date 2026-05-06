@@ -1,4 +1,4 @@
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'node:http';
 import { EventEmitter } from 'node:events';
 
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -16,12 +16,14 @@ import {
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorAuth } from './ConnectorAuth.js';
 import { type ConnectorInfo, ConnectorRegistry } from './ConnectorRegistry.js';
+import type { RegistrationService, RegisterRequest } from './RegistrationService.js';
 
 export interface GatewayOptions {
   port: number;
   path: string;
   pingIntervalMs: number;
   auth: ConnectorAuth;
+  registrationService?: RegistrationService;
 }
 
 export class ConnectorGateway extends EventEmitter {
@@ -35,13 +37,62 @@ export class ConnectorGateway extends EventEmitter {
 
   public constructor(private readonly options: GatewayOptions) {
     super();
-    this.httpServer = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ service: 'petfish-remote-ws', connectors: this.registry.list().length }));
-    });
+    this.httpServer = createServer((req, res) => this.handleHttp(req, res));
 
     this.wss = new WebSocketServer({ server: this.httpServer, path: options.path });
     this.wss.on('connection', (ws) => this.handleConnection(ws));
+  }
+
+  private handleHttp(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method === 'POST' && req.url === '/api/register') {
+      this.handleRegisterApi(req, res);
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ service: 'petfish-remote-ws', connectors: this.registry.list().length }));
+  }
+
+  private handleRegisterApi(req: IncomingMessage, res: ServerResponse): void {
+    const registrationService = this.options.registrationService;
+    if (!registrationService) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Registration not enabled' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      let payload: RegisterRequest;
+      try {
+        payload = JSON.parse(body) as RegisterRequest;
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      if (!payload.token || !payload.projectId || !payload.projectName || !payload.projectPath || !payload.hostname) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing required fields: token, projectId, projectName, projectPath, hostname' }));
+        return;
+      }
+
+      const result = registrationService.register(payload);
+
+      if ('error' in result) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+
+      // Dynamically add the connector token to auth so it can connect via WS
+      this.options.auth.addWildcardToken(result.connectorToken);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    });
   }
 
   public start(): Promise<void> {

@@ -17,6 +17,7 @@ import { MessageRenderer } from './render/MessageRenderer.js';
 import { OutputBatcher } from './render/OutputBatcher.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
+import { RegistrationService } from './server/RegistrationService.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse } from './types.js';
 
@@ -50,14 +51,40 @@ for (const rt of config.runtimes) {
 }
 
 let gateway: ConnectorGateway | undefined;
+let registrationService: RegistrationService | undefined;
 
 if (config.gateway.enabled) {
   const auth = new ConnectorAuth(config.connector_tokens);
+
+  registrationService = new RegistrationService({
+    onProjectRegistered: (userId, projectId, projectName, projectPath) => {
+      const existing = projectRegistry.getProject(projectId);
+      if (!existing) {
+        projectRegistry.addProject({
+          id: projectId,
+          name: projectName,
+          runtime: 'connector',
+          path: projectPath,
+          default_mode: 'read_only',
+          allowed_users: [userId],
+          readme_files: [],
+          test_commands: {},
+          risk_profile: 'default',
+          secrets_policy: 'mask',
+        });
+      } else {
+        projectRegistry.addUserToProject(projectId, userId);
+      }
+      console.log(`[registration] Project ${projectId} registered for user ${userId}`);
+    },
+  });
+
   gateway = new ConnectorGateway({
     port: config.gateway.port,
     path: config.gateway.path,
     pingIntervalMs: config.gateway.pingIntervalMs,
     auth,
+    registrationService,
   });
 
   for (const rt of config.runtimes) {
@@ -241,6 +268,9 @@ if (telegramToken) {
     getBinding: (chatId: string) => sessionManager.getSession(chatId) ?? undefined,
     bindProject: (chatId: string, projectId: string) => sessionManager.bindProject(chatId, projectId),
     isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),
+    generateRegistrationToken: registrationService
+      ? (userId: string) => registrationService!.generateToken(userId)
+      : undefined,
   };
 
   telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent, telegramDeps);

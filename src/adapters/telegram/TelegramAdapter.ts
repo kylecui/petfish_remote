@@ -10,6 +10,7 @@ export interface TelegramDeps {
   getBinding: (chatId: string) => { project_id: string } | undefined;
   bindProject: (chatId: string, projectId: string) => void;
   isUserAllowed: (projectId: string, userId: string) => boolean;
+  generateRegistrationToken?: (userId: string) => string;
 }
 
 export class TelegramAdapter {
@@ -26,10 +27,22 @@ export class TelegramAdapter {
 
   private setupHandlers(): void {
     this.bot.command('start', async (ctx) => {
+      const userId = `telegram:${ctx.from?.id}`;
+      const tokenSection = this.deps?.generateRegistrationToken
+        ? (() => {
+            const token = this.deps.generateRegistrationToken(userId);
+            return (
+              '\n\n*Setup your connector:*\n' +
+              '```\npetfish-connect setup \\\n' +
+              `  --token ${token} \\\n` +
+              '  --project-id <your-project>\n```\n' +
+              '_Token valid for 5 minutes._'
+            );
+          })()
+        : '\n\nUse /pf to get started.';
+
       await ctx.reply(
-        '><(((^> *PetFish Remote* — 胖鱼遥控器\n\n' +
-        'Control your opencode sessions from Telegram.\n\n' +
-        'Use /pf to get started.',
+        `><(((^> *PetFish Remote* — 胖鱼遥控器\n\nControl your opencode sessions from Telegram.${tokenSection}`,
         { parse_mode: 'Markdown' },
       );
     });

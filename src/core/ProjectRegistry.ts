@@ -30,4 +30,17 @@ export class ProjectRegistry {
     }
     return project.path;
   }
+
+  public addProject(project: ProjectConfig): void {
+    this.projectsById.set(project.id, project);
+  }
+
+  public addUserToProject(projectId: string, userId: string): boolean {
+    const project = this.projectsById.get(projectId);
+    if (!project) return false;
+    if (!project.allowed_users.includes(userId)) {
+      project.allowed_users.push(userId);
+    }
+    return true;
+  }
 }

@@ -6,8 +6,8 @@
 ## 你需要做什么
 
 1. 安装 connector 依赖（一次性）
-2. 创建 `connector.yaml` 配置（一次性）
-3. 在服务器注册项目（一次性）
+2. 获取注册 token（通过 Telegram /start）
+3. 运行 `petfish-connect.sh setup` 自动注册并生成配置
 4. 启动 connector 进程（每次 opencode 启动时）
 5. 写入 AGENTS.md 自启动指令（确保持久化）
 
@@ -29,35 +29,57 @@ git clone https://github.com/kylecui/petfish_remote.git /home/kylecui/dev/petfis
 cd /home/kylecui/dev/petfish_remote && npm install && npm run build
 ```
 
-## Step 2: 创建 connector.yaml
+## Step 2: 获取注册 Token
 
-在 **你的项目根目录** 创建 `connector.yaml`：
+在 Telegram 中向 @petfish_bot 发送 `/start`。Bot 会返回一个一次性 setup token（5分钟有效）。
 
-```bash
-cat > connector.yaml << 'EOF'
-connectorId: auto
-serverUrl: "wss://remote.petfish.ai/ws/connector"
-token: "e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE"
-reconnectIntervalMs: 5000
-maxReconnectIntervalMs: 60000
+示例回复：
+```
+><(((^> PetFish Remote — 胖鱼遥控器
 
-projects:
-  - id: PROJECT_ID_HERE
-    path: PROJECT_PATH_HERE
-    opencodeBin: opencode
-EOF
+Setup your connector:
+  petfish-connect setup \
+    --token a1b2c3d4e5f6... \
+    --project-id <your-project>
+
+Token valid for 5 minutes.
 ```
 
-**替换规则：**
-- `PROJECT_ID_HERE` → 项目短名（如 `petfish-tester`、`my-app`），小写，用 `-` 连接，无空格
-- `PROJECT_PATH_HERE` → 当前项目的绝对路径（即 `pwd` 的输出）
+## Step 3: 注册项目（自动）
 
-**示例：**
-```yaml
-projects:
-  - id: petfish-tester
-    path: /home/kylecui/dev/petfish-tester
-    opencodeBin: opencode
+在你的项目根目录执行 setup 命令。这会自动：
+- 向服务器注册项目
+- 获取持久 connector token
+- 生成 `connector.yaml` 配置文件
+
+```bash
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh setup \
+  --token <从Telegram获取的token> \
+  --project-id <项目短名> \
+  --project-path $(pwd)
+```
+
+**参数说明：**
+- `--token` → 从 Telegram /start 获取的一次性 token（必填）
+- `--project-id` → 项目短名（如 `my-app`），小写，用 `-` 连接（必填）
+- `--project-path` → 项目绝对路径，默认为当前目录（可选）
+- `--project-name` → 项目显示名，默认等于 project-id（可选）
+- `--server` → 服务器地址，默认 `https://remote.petfish.ai`（可选）
+- `--opencode-bin` → opencode 二进制路径，自动检测（可选）
+- `--output` → 配置输出路径，默认 `./connector.yaml`（可选）
+
+期望输出：
+```
+><(((^> petfish-connect: registering with server...
+   server: https://remote.petfish.ai
+   project: my-app (my-app)
+   path: /home/kylecui/dev/my-app
+
+   ✅ Registration successful!
+   Config written to: ./connector.yaml
+
+Start the connector with:
+  petfish-connect.sh start ./connector.yaml
 ```
 
 将 `connector.yaml` 加入 `.gitignore`（含 token，不应提交）：
@@ -65,51 +87,6 @@ projects:
 ```bash
 echo "connector.yaml" >> .gitignore
 ```
-
-## Step 3: 在服务器注册项目
-
-执行以下 SSH 命令，将你的项目追加到服务器配置中：
-
-```bash
-ssh root@38.55.160.238 "cat >> /opt/petfish-remote/config/projects.yaml" << EOF
-
-  PROJECT_ID_HERE:
-    name: "你的项目显示名"
-    runtime: "kyle-desktop"
-    path: "PROJECT_PATH_HERE"
-    default_mode: "read_only"
-    allowed_users:
-      - "telegram:685608515"
-    readme_files: []
-    test_commands: {}
-    risk_profile: "default"
-    secrets_policy: "deny_read"
-EOF
-```
-
-**替换** `PROJECT_ID_HERE` 和 `PROJECT_PATH_HERE`，与 Step 2 保持一致。
-
-然后重启服务器使配置生效：
-
-```bash
-ssh root@38.55.160.238 "systemctl restart petfish-remote"
-```
-
-验证服务正常启动：
-
-```bash
-ssh root@38.55.160.238 "systemctl is-active petfish-remote"
-```
-
-期望输出：`active`
-
-如果输出 `failed`，查看错误：
-
-```bash
-ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 20"
-```
-
-常见错误：YAML 缩进不对、字段缺失。确保所有 required fields 都存在。
 
 ## Step 4: 启动 Connector
 
@@ -207,10 +184,11 @@ EOF
 
 | 现象 | 原因 | 解决 |
 |------|------|------|
-| `AUTH_FAILED` | token 不对 | 检查 connector.yaml 中的 token |
+| `AUTH_FAILED` | token 不对 | 重新执行 `petfish-connect.sh setup` 获取新 token |
+| `Registration failed (HTTP 401)` | setup token 过期或已使用 | 在 Telegram 重新 `/start` 获取新 token |
 | `SessionBridge init failed` | OPENCODE_PID 不正确 | 用 `pgrep -x "opencode"` 获取正确 PID |
-| `/pf list` 看不到项目 | 服务器 projects.yaml 没注册 | 执行 Step 3 |
-| `/pf use` 报 Access denied | allowed_users 没加 | 在服务器 projects.yaml 加 `telegram:685608515` |
+| `/pf list` 看不到项目 | 项目未注册 | 执行 `petfish-connect.sh setup` 注册项目 |
+| `/pf use` 报 Access denied | allowed_users 没加 | 重新 setup 或手动在服务器 projects.yaml 添加用户 |
 | 发消息无响应 | connector 未连接 | `petfish-connect.sh status` 检查，`petfish-connect.sh logs` 看日志 |
 | connector 曾连接但现在不响应 | 服务器重启后 connector 断连 | `petfish-connect.sh restart ./connector.yaml` |
 | Connector process died immediately | build 过期或配置错误 | `cd /home/kylecui/dev/petfish_remote && git pull && npm run build`，然后重试 |
