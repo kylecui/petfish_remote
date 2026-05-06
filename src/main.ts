@@ -95,6 +95,9 @@ if (config.gateway.enabled) {
     }
   }
 
+  const dynamicRuntime = new RemoteRuntime('connector', undefined, gateway);
+  runtimeRouter.registerConnector('connector', dynamicRuntime);
+
   gateway.on('connector:change', (connectorId: string, info: unknown) => {
     if (!telegramAdapter) return;
     const status = info ? '🟢 online' : '🔴 offline';
