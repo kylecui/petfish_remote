@@ -63,6 +63,7 @@ if (config.gateway.enabled) {
   const auth = new ConnectorAuth(config.connector_tokens);
 
   registrationService = new RegistrationService({
+    storage,
     onProjectRegistered: (userId, projectId, projectName, projectPath) => {
       const existing = projectRegistry.getProject(projectId);
       if (!existing) {
@@ -92,6 +93,10 @@ if (config.gateway.enabled) {
     auth,
     registrationService,
   });
+
+  for (const token of registrationService.getPersistedTokens()) {
+    auth.addWildcardToken(token);
+  }
 
   for (const rt of config.runtimes) {
     if (rt.type === 'connector') {

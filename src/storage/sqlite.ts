@@ -61,6 +61,21 @@ export class Storage {
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS connector_tokens (
+        user_id TEXT PRIMARY KEY,
+        token TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS registered_projects (
+        project_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        registered_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, user_id)
+      );
     `;
 
     this.db.exec(schema);
@@ -264,5 +279,46 @@ export class Storage {
       .prepare('SELECT * FROM audit_logs WHERE task_id = ? ORDER BY created_at ASC')
       .all(taskId) as AuditEvent[];
     return rows;
+  }
+
+  public upsertConnectorToken(userId: string, token: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO connector_tokens (user_id, token, created_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET token = excluded.token
+    `);
+    stmt.run(userId, token, new Date().toISOString());
+  }
+
+  public getConnectorToken(userId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT token FROM connector_tokens WHERE user_id = ?')
+      .get(userId) as { token: string } | undefined;
+    return row?.token;
+  }
+
+  public getAllConnectorTokens(): Array<{ userId: string; token: string }> {
+    const rows = this.db
+      .prepare('SELECT user_id, token FROM connector_tokens')
+      .all() as Array<{ user_id: string; token: string }>;
+    return rows.map((r) => ({ userId: r.user_id, token: r.token }));
+  }
+
+  public upsertRegisteredProject(userId: string, projectId: string, projectName: string, projectPath: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO registered_projects (project_id, user_id, project_name, project_path, registered_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, user_id) DO UPDATE SET
+        project_name = excluded.project_name,
+        project_path = excluded.project_path
+    `);
+    stmt.run(projectId, userId, projectName, projectPath, new Date().toISOString());
+  }
+
+  public getAllRegisteredProjects(): Array<{ userId: string; projectId: string; projectName: string; projectPath: string }> {
+    const rows = this.db
+      .prepare('SELECT user_id, project_id, project_name, project_path FROM registered_projects')
+      .all() as Array<{ user_id: string; project_id: string; project_name: string; project_path: string }>;
+    return rows.map((r) => ({ userId: r.user_id, projectId: r.project_id, projectName: r.project_name, projectPath: r.project_path }));
   }
 }
