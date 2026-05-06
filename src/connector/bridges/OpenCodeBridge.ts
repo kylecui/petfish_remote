@@ -45,6 +45,7 @@ export class OpenCodeBridge implements AgentBridge {
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
+  private lastActiveTaskId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
   private onQuestion: QuestionCallback | undefined;
@@ -184,6 +185,7 @@ export class OpenCodeBridge implements AgentBridge {
     };
 
     this.pending.set(taskId, entry);
+    this.lastActiveTaskId = taskId;
     this.pendingCorrelation = taskId;
 
     const port = Number(this.opencodePort);
@@ -598,7 +600,7 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      taskId = `question_${questionId}`;
+      taskId = this.lastActiveTaskId ?? `question_${questionId}`;
     }
 
     this.cancelSettleTimer(taskId);
@@ -640,7 +642,7 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      taskId = `permission_${permissionId}`;
+      taskId = this.lastActiveTaskId ?? `permission_${permissionId}`;
     }
 
     this.cancelSettleTimer(taskId);

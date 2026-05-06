@@ -55,6 +55,7 @@ for (const rt of config.runtimes) {
 let gateway: ConnectorGateway | undefined;
 let registrationService: RegistrationService | undefined;
 const taskIdToChatId = new Map<string, string>();
+const connectorIdToChatId = new Map<string, string>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 
@@ -140,9 +141,9 @@ if (config.gateway.enabled) {
   gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
     if (!telegramAdapter) return;
     questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
-    const chatId = taskIdToChatId.get(payload.taskId);
+    const chatId = taskIdToChatId.get(payload.taskId) ?? connectorIdToChatId.get(connectorId);
     if (!chatId) {
-      console.warn(`[question] No chatId found for taskId=${payload.taskId}`);
+      console.warn(`[question] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
     }
     console.log(`[question] Relaying question ${payload.questionId} to chat ${chatId}`);
@@ -152,9 +153,9 @@ if (config.gateway.enabled) {
   gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
     if (!telegramAdapter) return;
     permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
-    const chatId = taskIdToChatId.get(payload.taskId);
+    const chatId = taskIdToChatId.get(payload.taskId) ?? connectorIdToChatId.get(connectorId);
     if (!chatId) {
-      console.warn(`[permission] No chatId found for taskId=${payload.taskId}`);
+      console.warn(`[permission] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
     }
     console.log(`[permission] Relaying permission ${payload.permissionId} to chat ${chatId}`);
@@ -251,6 +252,10 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       });
       sessionManager.updateTask(event.chat_id, task.task_id);
       taskIdToChatId.set(task.task_id, event.chat_id);
+      if (gateway) {
+        const ci = gateway.registry.findByProject(session.project_id);
+        if (ci) connectorIdToChatId.set(ci.connectorId, event.chat_id);
+      }
 
       if (telegramAdapter) {
         void telegramAdapter.sendTyping(event.chat_id);
