@@ -10,17 +10,26 @@ export type ConnectorToken = z.infer<typeof connectorTokenSchema>;
 
 export class ConnectorAuth {
   private readonly tokens: Map<string, string>;
+  private readonly wildcardTokens: string[];
 
   public constructor(tokens: ConnectorToken[]) {
-    this.tokens = new Map(tokens.map((t) => [t.connectorId, t.token]));
+    this.tokens = new Map();
+    this.wildcardTokens = [];
+    for (const t of tokens) {
+      if (t.connectorId === '*') {
+        this.wildcardTokens.push(t.token);
+      } else {
+        this.tokens.set(t.connectorId, t.token);
+      }
+    }
   }
 
   public verify(connectorId: string, token: string): boolean {
     const expected = this.tokens.get(connectorId);
-    if (!expected) {
-      return false;
+    if (expected) {
+      return this.timingSafeEqual(expected, token);
     }
-    return this.timingSafeEqual(expected, token);
+    return this.wildcardTokens.some((wt) => this.timingSafeEqual(wt, token));
   }
 
   private timingSafeEqual(a: string, b: string): boolean {
