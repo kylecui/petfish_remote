@@ -5,10 +5,13 @@ import { hostname } from 'node:os';
 import { parse } from 'yaml';
 import { z } from 'zod';
 
+const agentSchema = z.enum(['auto', 'opencode', 'gemini', 'codex']).default('auto');
+
 const projectSchema = z.object({
   id: z.string(),
   path: z.string(),
   opencodeBin: z.string().default('opencode'),
+  agent: agentSchema,
 });
 
 const configSchema = z.object({

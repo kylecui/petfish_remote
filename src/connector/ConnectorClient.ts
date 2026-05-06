@@ -48,15 +48,15 @@ export class ConnectorClient {
   public constructor(
     private readonly config: ConnectorConfig,
     private readonly executor: LocalTaskExecutor,
-    private readonly sessionBridge?: AgentBridge,
+    private readonly bridges: Map<string, AgentBridge> = new Map(),
   ) {
     this.reconnectDelay = config.reconnectIntervalMs;
 
-    if (this.sessionBridge) {
-      this.sessionBridge.setQuestionCallback((taskId, payload) => {
+    for (const bridge of this.bridges.values()) {
+      bridge.setQuestionCallback((taskId, payload) => {
         this.send(createEnvelope(MSG.TASK_QUESTION, payload as unknown as Record<string, unknown>, taskId));
       });
-      this.sessionBridge.setPermissionCallback((taskId, payload) => {
+      bridge.setPermissionCallback((taskId, payload) => {
         this.send(createEnvelope(MSG.TASK_PERMISSION, payload as unknown as Record<string, unknown>, taskId));
       });
     }
@@ -200,9 +200,8 @@ export class ConnectorClient {
   }
 
   private handleSessionNew(): void {
-    if (this.sessionBridge) {
-      console.log('[session] Server requested new session — triggering rediscover');
-      void this.sessionBridge.requestNewSession();
+    for (const bridge of this.bridges.values()) {
+      void bridge.requestNewSession();
     }
   }
 
@@ -232,13 +231,14 @@ export class ConnectorClient {
       this.send(createEnvelope(MSG.TASK_FAIL, { taskId, error }, taskId));
     };
 
-    if (this.sessionBridge) {
+    const bridge = this.bridges.get(payload.projectId);
+    if (bridge) {
       const instruction = payload.rawInstruction ?? payload.instruction;
-      console.log(`[task] routing to AgentBridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
+      console.log(`[task] routing to ${bridge.agentType} bridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
       this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
-      const ok = this.sessionBridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
+      const ok = bridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
       if (!ok) {
-        console.warn(`[task] AgentBridge.prompt returned false for taskId=${payload.taskId}`);
+        console.warn(`[task] ${bridge.agentType} bridge.prompt returned false for taskId=${payload.taskId}`);
       }
       return;
     }
@@ -274,21 +274,23 @@ export class ConnectorClient {
   }
 
   private handleQuestionReply(envelope: Envelope): void {
-    if (!this.sessionBridge) return;
     const result = questionReplyPayloadSchema.safeParse(envelope.payload);
     if (!result.success) return;
     const { questionId, answers } = result.data;
     console.log(`[task] question reply received questionId=${questionId}`);
-    this.sessionBridge.answerQuestion(questionId, answers);
+    for (const bridge of this.bridges.values()) {
+      bridge.answerQuestion(questionId, answers);
+    }
   }
 
   private handlePermissionReply(envelope: Envelope): void {
-    if (!this.sessionBridge) return;
     const result = permissionReplyPayloadSchema.safeParse(envelope.payload);
     if (!result.success) return;
     const { permissionId, allowed } = result.data;
     console.log(`[task] permission reply received permissionId=${permissionId} allowed=${allowed}`);
-    this.sessionBridge.answerPermission(permissionId, allowed);
+    for (const bridge of this.bridges.values()) {
+      bridge.answerPermission(permissionId, allowed);
+    }
   }
 
   private send(envelope: Envelope): void {

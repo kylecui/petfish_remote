@@ -17,34 +17,36 @@ try {
 const projectMap = new Map<string, ConnectorProjectConfig>(config.projects.map((p) => [p.id, p]));
 const executor = new LocalTaskExecutor(projectMap);
 
-let bridge: AgentBridge | undefined;
+const bridges = new Map<string, AgentBridge>();
 
 async function start() {
-  try {
-    bridge = await createBridge({ agent: 'auto' });
-    if (bridge) {
-      console.log(`${bridge.agentType} bridge active: routing tasks to agent session`);
+  for (const project of config!.projects) {
+    try {
+      const bridge = await createBridge({ agent: project.agent });
+      if (bridge) {
+        bridges.set(project.id, bridge);
+        console.log(`[${project.id}] ${bridge.agentType} bridge active`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[${project.id}] bridge init failed (${msg}), using process spawn`);
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`Bridge init failed (${msg}), falling back to process spawn mode`);
-    bridge = undefined;
   }
 
-  const client = new ConnectorClient(config!, executor, bridge);
+  const client = new ConnectorClient(config!, executor, bridges);
 
   process.once('SIGINT', () => {
     console.log('Shutting down connector...');
-    bridge?.stop();
+    for (const bridge of bridges.values()) bridge.stop();
     client.stop();
   });
   process.once('SIGTERM', () => {
     console.log('Shutting down connector...');
-    bridge?.stop();
+    for (const bridge of bridges.values()) bridge.stop();
     client.stop();
   });
 
-  console.log(`PetFish Connector starting (${config!.connectorId}, ${config!.projects.length} projects)`);
+  console.log(`PetFish Connector starting (${config!.connectorId}, ${config!.projects.length} projects, ${bridges.size} bridges)`);
   client.start();
 }
 

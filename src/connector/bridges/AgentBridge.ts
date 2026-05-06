@@ -48,11 +48,17 @@ export async function createBridge(config: BridgeConfig): Promise<AgentBridge | 
   }
 
   if (agent === 'gemini') {
-    throw new Error('Gemini bridge not yet implemented');
+    const { GeminiBridge } = await import('./GeminiBridge.js');
+    const bridge = new GeminiBridge({});
+    await bridge.init();
+    return bridge;
   }
 
   if (agent === 'codex') {
-    throw new Error('Codex bridge not yet implemented');
+    const { CodexBridge } = await import('./CodexBridge.js');
+    const bridge = new CodexBridge({});
+    await bridge.init();
+    return bridge;
   }
 
   return undefined;
