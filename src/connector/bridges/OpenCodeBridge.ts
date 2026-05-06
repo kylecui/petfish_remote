@@ -64,11 +64,11 @@ export class OpenCodeBridge implements AgentBridge {
   public async init(): Promise<void> {
     this.opencodePort = this.discoverPort();
     this.sessionId = this.discoverSession();
-    if (!this.sessionId) {
-      throw new Error('Cannot discover active session. Is OPENCODE_SESSION_ID set?');
-    }
     if (!this.opencodePort) {
-      throw new Error('Cannot discover opencode port. Is OPENCODE_PID set?');
+      throw new Error('Cannot discover opencode port. No running opencode instance found.');
+    }
+    if (!this.sessionId) {
+      throw new Error('Cannot discover active session on opencode.');
     }
     this.lastCompletedAssistantId = this.discoverLastAssistantMessage();
     this.connectSSE();
@@ -377,6 +377,7 @@ export class OpenCodeBridge implements AgentBridge {
   private scheduleSSEReconnect(): void {
     if (this.stopped) return;
     this.sseReconnectTimer = setTimeout(() => {
+      this.rediscover();
       this.connectSSE();
     }, 3000);
   }
@@ -706,14 +707,36 @@ export class OpenCodeBridge implements AgentBridge {
 
   private discoverPort(): string | undefined {
     const pid = process.env['OPENCODE_PID'];
-    if (!pid) return undefined;
-    try {
-      const out = execSync(`ss -tlnp 2>/dev/null | grep "pid=${pid}"`, { encoding: 'utf-8' });
-      const portMatch = out.match(/:(\d+)\s/);
-      return portMatch?.[1];
-    } catch {
-      return undefined;
+
+    if (pid) {
+      try {
+        const out = execSync(`ss -tlnp 2>/dev/null | grep "pid=${pid}"`, { encoding: 'utf-8' });
+        const portMatch = out.match(/:(\d+)\s/);
+        if (portMatch) return portMatch[1];
+      } catch { /* fall through to scan */ }
     }
+
+    try {
+      const out = execSync(`ss -tlnp 2>/dev/null | grep opencode`, { encoding: 'utf-8' });
+      const portMatch = out.match(/:(\d+)\s/);
+      if (portMatch) return portMatch[1];
+    } catch { /* fall through */ }
+
+    try {
+      const psOut = execSync(`ps aux 2>/dev/null | grep "opencode.*--port" | grep -v grep`, { encoding: 'utf-8' });
+      const portMatch = psOut.match(/--port\s+(\d+)/);
+      if (portMatch) return portMatch[1];
+    } catch { /* fall through */ }
+
+    if (process.platform === 'win32') {
+      try {
+        const psOut = execSync('powershell -NoProfile -Command "Get-Process opencode -ErrorAction SilentlyContinue | ForEach-Object { (Get-CimInstance Win32_Process -Filter \\"ProcessId=$($_.Id)\\").CommandLine }"', { encoding: 'utf-8' });
+        const portMatch = psOut.match(/--port\s+(\d+)/);
+        if (portMatch) return portMatch[1];
+      } catch { /* fall through */ }
+    }
+
+    return undefined;
   }
 
   private discoverSession(): string | undefined {

@@ -47,6 +47,12 @@ export async function createBridge(config: BridgeConfig): Promise<AgentBridge | 
       await bridge.init();
       return bridge;
     }
+    try {
+      const { OpenCodeBridge } = await import('./OpenCodeBridge.js');
+      const bridge = new OpenCodeBridge({});
+      await bridge.init();
+      return bridge;
+    } catch { /* no opencode found in auto mode, continue */ }
   }
 
   if (agent === 'gemini') {

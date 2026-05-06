@@ -62,9 +62,9 @@ function Get-LogFile {
 function Test-Running {
     param([string]$PidFile)
     if (-not (Test-Path $PidFile)) { return $false }
-    $pid = [int](Get-Content $PidFile -Raw).Trim()
+    $procId = [int](Get-Content $PidFile -Raw).Trim()
     try {
-        $proc = Get-Process -Id $pid -ErrorAction Stop
+        $proc = Get-Process -Id $procId -ErrorAction Stop
         return ($proc -ne $null -and -not $proc.HasExited)
     }
     catch {
@@ -116,8 +116,9 @@ function Invoke-Start {
 
     $env:OPENCODE_PID = $opencodePid
 
+    $argString = "`"$ConnectorJs`" `"$Config`""
     $proc = Start-Process -FilePath $nodeExe `
-        -ArgumentList "`"$ConnectorJs`" `"$Config`"" `
+        -ArgumentList $argString `
         -WindowStyle Hidden `
         -RedirectStandardOutput $logFile `
         -RedirectStandardError "$logFile.err" `
@@ -145,6 +146,9 @@ function Invoke-Start {
     Write-Host ""
     Write-Host "Connector is running in background (survives terminal close)."
     Write-Host "To stop: .\petfish-connect.ps1 stop"
+
+    [Console]::Out.Flush()
+    [Console]::Error.Flush()
 }
 
 function Invoke-Stop {
@@ -165,11 +169,11 @@ function Invoke-Stop {
         return
     }
 
-    $pid = [int](Get-Content $pidFile -Raw).Trim()
-    Write-Host "Stopping connector (PID $pid)..."
+    $procId = [int](Get-Content $pidFile -Raw).Trim()
+    Write-Host "Stopping connector (PID $procId)..."
 
     try {
-        Stop-Process -Id $pid -Force -ErrorAction Stop
+        Stop-Process -Id $procId -Force -ErrorAction Stop
     }
     catch {
         Write-Host "Process already exited."
@@ -190,8 +194,8 @@ function Invoke-Status {
     Write-Host ""
 
     if (Test-Running $pidFile) {
-        $pid = (Get-Content $pidFile -Raw).Trim()
-        Write-Host "  Status: RUNNING (PID $pid)"
+        $procId = (Get-Content $pidFile -Raw).Trim()
+        Write-Host "  Status: RUNNING (PID $procId)"
         Write-Host "  PID file: $pidFile"
         Write-Host "  Log file: $logFile"
         Write-Host ""
