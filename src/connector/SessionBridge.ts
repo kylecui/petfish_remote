@@ -180,6 +180,7 @@ export class SessionBridge {
 
         await doPost('/tui/clear-prompt', clearBody);
         await doPost('/tui/append-prompt', appendBody);
+        await new Promise(r => setTimeout(r, 200));
 
         for (let attempt = 0; attempt < this.maxSubmitRetries; attempt++) {
           const status = await doPost('/tui/submit-prompt', submitBody);
@@ -201,6 +202,7 @@ export class SessionBridge {
           if (attempt < this.maxSubmitRetries - 1) {
             await doPost('/tui/clear-prompt', clearBody);
             await doPost('/tui/append-prompt', appendBody);
+            await new Promise(r => setTimeout(r, 200));
           }
         }
 
