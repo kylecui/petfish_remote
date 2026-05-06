@@ -113,39 +113,46 @@ ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 20"
 
 ## Step 4: 启动 Connector
 
-在你的 opencode session 中，执行以下命令启动 connector 后台进程：
+在你的 opencode session 中执行以下命令。脚本会以 daemon 模式启动 connector（使用 nohup + disown），进程会在 bash 工具退出后继续存活：
 
 ```bash
-OPENCODE_PID=$$ node /home/kylecui/dev/petfish_remote/dist/connector/main.js ./connector.yaml &
-CONNECTOR_PID=$!
-echo "Connector started: PID=$CONNECTOR_PID"
+OPENCODE_PID=$(pgrep -x "opencode" | head -1) \
+  /home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh start ./connector.yaml
 ```
 
-> **注意**: `OPENCODE_PID=$$` 在 opencode 的 bash 工具中会获得 opencode 的父 shell PID。如果这不正确，用以下方式获取精确 PID：
-> ```bash
-> OPENCODE_PID=$(pgrep -x "opencode" | head -1)
-> ```
+**⚠️ 重要：必须使用 `petfish-connect.sh start` 命令。不要直接 `node dist/connector/main.js` — 那样会在 opencode bash 工具超时后被杀掉。**
 
-验证 connector 成功注册——等待几秒后检查服务器日志：
+期望输出：
+
+```
+><(((^> petfish-connect: starting daemon
+   config: /path/to/project/connector.yaml
+   log: /tmp/petfish-connector-project.log
+   opencode PID: 12345
+   status: ✅ registered with server
+   PID: 67890
+
+Connector is running in background. It will survive terminal close.
+```
+
+验证 connector 确实注册成功：
 
 ```bash
-sleep 5 && ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 5 | grep -i register"
+ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 5 | grep -i register"
 ```
 
-期望看到类似：
-```
-Connector registered: hostname-projectid (HOSTNAME, 1 projects)
-```
-
-如果没有看到你的 connector，检查进程是否还活着：
+其它管理命令：
 
 ```bash
-ps -p $CONNECTOR_PID -o pid,comm 2>/dev/null || echo "Connector process died"
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh status ./connector.yaml
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh stop ./connector.yaml
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh restart ./connector.yaml
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh logs ./connector.yaml
 ```
 
 ## Step 5: 写入自启动指令到 AGENTS.md
 
-为了确保每次 opencode 启动都能加载遥控器，在项目的 `AGENTS.md` 中添加以下内容：
+为了确保每次 opencode 启动都能自动加载遥控器，在项目的 `AGENTS.md` 中添加以下内容：
 
 ```bash
 cat >> AGENTS.md << 'EOF'
@@ -159,20 +166,17 @@ cat >> AGENTS.md << 'EOF'
 在每次 session 开始时（收到用户第一条消息前），执行：
 
 ```bash
-# 检查 connector 是否在运行
 if ! pgrep -f "dist/connector/main.js.*connector.yaml" > /dev/null 2>&1; then
-  echo "Starting petfish-remote connector..."
   OPENCODE_PID=$(pgrep -x "opencode" | head -1) \
-    node /home/kylecui/dev/petfish_remote/dist/connector/main.js ./connector.yaml &
-  sleep 3
-  echo "Connector PID: $!"
+    /home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh start ./connector.yaml
 fi
 ```
 
-### 验证连接
+### 管理命令
 
 ```bash
-ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 5 | grep register"
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh status ./connector.yaml
+/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh logs ./connector.yaml
 ```
 
 ### 用户使用方式
@@ -207,8 +211,10 @@ EOF
 | `SessionBridge init failed` | OPENCODE_PID 不正确 | 用 `pgrep -x "opencode"` 获取正确 PID |
 | `/pf list` 看不到项目 | 服务器 projects.yaml 没注册 | 执行 Step 3 |
 | `/pf use` 报 Access denied | allowed_users 没加 | 在服务器 projects.yaml 加 `telegram:685608515` |
-| 发消息无响应 | connector 未连接 | 在服务器查日志确认 connector 注册 |
-| connector 曾连接但现在不响应 | 服务器重启后 connector 断连 | 重启 connector 进程 |
+| 发消息无响应 | connector 未连接 | `petfish-connect.sh status` 检查，`petfish-connect.sh logs` 看日志 |
+| connector 曾连接但现在不响应 | 服务器重启后 connector 断连 | `petfish-connect.sh restart ./connector.yaml` |
+| Connector process died immediately | build 过期或配置错误 | `cd /home/kylecui/dev/petfish_remote && git pull && npm run build`，然后重试 |
+| Connector already running | 上次未正常停止 | `petfish-connect.sh stop` 后再 `start` |
 
 ## 服务器信息
 

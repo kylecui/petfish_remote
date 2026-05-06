@@ -34,6 +34,8 @@ export class SessionBridge {
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private readonly idleConfirmMs = 1500;
   private readonly settleGraceMs = 2000;
+  private readonly submitVerifyMs = 5000;
+  private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
@@ -138,9 +140,6 @@ export class SessionBridge {
     this.pendingCorrelation = taskId;
 
     const port = Number(this.opencodePort);
-    const clearBody = JSON.stringify({});
-    const appendBody = JSON.stringify({ text: instruction });
-    const submitBody = JSON.stringify({});
 
     const doPost = (path: string, body: string): Promise<number> => {
       return new Promise((resolve, reject) => {
@@ -154,16 +153,62 @@ export class SessionBridge {
       });
     };
 
+    const waitForCorrelation = (): Promise<boolean> => {
+      return new Promise((resolve) => {
+        if (!this.pendingCorrelation) {
+          resolve(true);
+          return;
+        }
+        const timer = setTimeout(() => {
+          resolve(this.pendingCorrelation !== taskId);
+        }, this.submitVerifyMs);
+        const check = setInterval(() => {
+          if (this.pendingCorrelation !== taskId) {
+            clearTimeout(timer);
+            clearInterval(check);
+            resolve(true);
+          }
+        }, 200);
+      });
+    };
+
     (async () => {
       try {
+        const clearBody = JSON.stringify({});
+        const appendBody = JSON.stringify({ text: instruction });
+        const submitBody = JSON.stringify({});
+
         await doPost('/tui/clear-prompt', clearBody);
         await doPost('/tui/append-prompt', appendBody);
-        const status = await doPost('/tui/submit-prompt', submitBody);
-        console.log(`[SessionBridge] TUI submit response: ${status} taskId=${taskId}`);
-        if (status !== 204 && status !== 200) {
-          this.pendingCorrelation = undefined;
-          this.settle(taskId, `TUI submit failed: ${status}`);
+
+        for (let attempt = 0; attempt < this.maxSubmitRetries; attempt++) {
+          const status = await doPost('/tui/submit-prompt', submitBody);
+          console.log(`[SessionBridge] TUI submit response: ${status} taskId=${taskId} attempt=${attempt + 1}`);
+
+          if (status !== 204 && status !== 200) {
+            this.pendingCorrelation = undefined;
+            this.settle(taskId, `TUI submit failed: ${status}`);
+            return;
+          }
+
+          const correlated = await waitForCorrelation();
+          if (correlated) {
+            return;
+          }
+
+          console.log(`[SessionBridge] Submit not acknowledged after ${this.submitVerifyMs}ms, retry ${attempt + 2}/${this.maxSubmitRetries} taskId=${taskId}`);
+
+          if (attempt < this.maxSubmitRetries - 1) {
+            await doPost('/tui/clear-prompt', clearBody);
+            await doPost('/tui/append-prompt', appendBody);
+          }
         }
+
+        console.log(`[SessionBridge] Submit failed after ${this.maxSubmitRetries} retries, re-queuing taskId=${taskId}`);
+        this.pendingCorrelation = undefined;
+        this.pending.delete(taskId);
+        this.localQueue.unshift({ taskId, instruction, onOutput, onComplete, onFail });
+        this.scheduleIdleDrain();
       } catch (err) {
         this.pendingCorrelation = undefined;
         this.settle(taskId, `TUI submit error: ${err instanceof Error ? err.message : String(err)}`);
