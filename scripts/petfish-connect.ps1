@@ -27,7 +27,10 @@ param(
     [string]$ProjectName,
     [string]$ProjectPath,
     [string]$Server = 'https://remote.petfish.ai',
-    [string]$Output
+    [string]$Output,
+
+    [ValidateSet('auto', 'opencode', 'gemini', 'codex')]
+    [string]$Agent = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -245,6 +248,19 @@ function Invoke-Setup {
     Write-Host "   server: $Server"
     Write-Host "   project: $ProjectId ($ProjectName)"
     Write-Host "   path: $ProjectPath"
+    Write-Host "   agent: $Agent"
+
+    # Pre-flight: warn if selected agent binary is not found
+    if ($Agent -ne 'auto') {
+        $agentBin = switch ($Agent) {
+            'opencode' { 'opencode' }
+            'gemini'   { 'gemini' }
+            'codex'    { 'codex' }
+        }
+        if (-not (Get-Command $agentBin -ErrorAction SilentlyContinue)) {
+            Write-Host "  ⚠️  WARNING: '$agentBin' not found in PATH. Bridge may fail at runtime."
+        }
+    }
 
     $body = @{
         token       = $Token
@@ -277,6 +293,7 @@ maxReconnectIntervalMs: 60000
 projects:
   - id: $ProjectId
     path: $ProjectPath
+    agent: $Agent
     opencodeBin: opencode
 "@
 

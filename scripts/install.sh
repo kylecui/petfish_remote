@@ -58,6 +58,7 @@ PROJECT_ID=""
 PROJECT_PATH=""
 PROJECT_NAME=""
 OPENCODE_BIN=""
+AGENT=""
 AUTO_START=true
 NPM_CMD=""
 
@@ -69,6 +70,7 @@ parse_args() {
       --project-path)  PROJECT_PATH="$2"; shift 2 ;;
       --project-name)  PROJECT_NAME="$2"; shift 2 ;;
       --opencode-bin)  OPENCODE_BIN="$2"; shift 2 ;;
+      --agent)         AGENT="$2"; shift 2 ;;
       --no-start)      AUTO_START=false; shift ;;
       --help|-h)       usage; exit 0 ;;
       -*)              die "Unknown option: $1. Use --help for usage." ;;
@@ -100,6 +102,7 @@ Options:
   --project-path <path>   Project working directory (default: $PWD)
   --project-name <name>   Display name (default: project-id)
   --opencode-bin <path>   Path to opencode binary
+  --agent <type>          AI agent type: auto|opencode|gemini|codex (default: auto)
   --no-start              Don't start connector after setup
   --help                  Show this help
 
@@ -251,6 +254,7 @@ do_register() {
   [ -n "$PROJECT_PATH" ] && args+=(--project-path "$PROJECT_PATH")
   [ -n "$PROJECT_NAME" ] && args+=(--project-name "$PROJECT_NAME")
   [ -n "$OPENCODE_BIN" ] && args+=(--opencode-bin "$OPENCODE_BIN")
+  [ -n "$AGENT" ] && args+=(--agent "$AGENT")
 
   # Override server URL if injected
   if [ "$PETFISH_SERVER_URL" != "__PETFISH_SERVER_URL__" ]; then
