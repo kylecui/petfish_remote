@@ -249,6 +249,12 @@ export class ConnectorGateway extends EventEmitter {
         connectorId = payload.connectorId;
 
         const userId = this.options.registrationService?.resolveUserByToken(payload.token);
+        if (!userId && this.options.registrationService) {
+          this.sendError(ws, 'AUTH_FAILED', 'Token not associated with any user. Please re-register via /start.');
+          ws.close(4003, 'No user for token');
+          return;
+        }
+
         const info: ConnectorInfo = {
           connectorId: payload.connectorId,
           hostname: payload.hostname,
