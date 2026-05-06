@@ -56,6 +56,11 @@ export class ConnectorGateway extends EventEmitter {
       return;
     }
 
+    if (req.url === '/install' || req.url === '/install.sh') {
+      this.handleInstallScript(req, res);
+      return;
+    }
+
     if (req.url === '/api/version') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ version: SERVER_VERSION }));
@@ -106,6 +111,30 @@ export class ConnectorGateway extends EventEmitter {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     });
+  }
+
+  private handleInstallScript(_req: IncomingMessage, res: ServerResponse): void {
+    const scriptPath = resolve(__dirname, '../../scripts/install.sh');
+    const fallbackUrl = 'https://raw.githubusercontent.com/kylecui/petfish_remote/main/scripts/install.sh';
+
+    let script: string;
+    try {
+      script = readFileSync(scriptPath, 'utf-8');
+    } catch {
+      res.writeHead(302, { Location: fallbackUrl });
+      res.end();
+      return;
+    }
+
+    const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
+    script = script.replace('__PETFISH_SERVER_URL__', serverUrl);
+
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'inline; filename="install.sh"',
+      'Cache-Control': 'no-cache',
+    });
+    res.end(script);
   }
 
   public start(): Promise<void> {

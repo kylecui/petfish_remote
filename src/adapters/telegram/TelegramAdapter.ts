@@ -28,15 +28,14 @@ export class TelegramAdapter {
   private setupHandlers(): void {
     this.bot.command('start', async (ctx) => {
       const userId = `telegram:${ctx.from?.id}`;
+      const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
       const tokenSection = this.deps?.generateRegistrationToken
         ? (() => {
             const token = this.deps.generateRegistrationToken(userId);
             return (
-              '\n\n*Setup your connector:*\n' +
-              '```\npetfish-connect setup \\\n' +
-              `  --token ${token} \\\n` +
-              '  --project-id <your-project>\n```\n' +
-              '_Token valid for 5 minutes._'
+              '\n\n*Quick setup — paste in terminal or ask your AI agent to run:*\n' +
+              `\`\`\`\ncurl -sSL ${serverUrl}/install | bash -s -- ${token}\n\`\`\`\n` +
+              '_Token expires in 5 minutes. Installs/upgrades automatically._'
             );
           })()
         : '\n\nUse /pf to get started.';
