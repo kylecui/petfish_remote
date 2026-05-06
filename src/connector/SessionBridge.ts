@@ -56,10 +56,39 @@ export class SessionBridge {
     console.log(`SessionBridge: session=${this.sessionId} port=${this.opencodePort} lastAssistant=${this.lastCompletedAssistantId ?? 'none'}`);
   }
 
+  private rediscover(): boolean {
+    const oldPort = this.opencodePort;
+    const oldSession = this.sessionId;
+
+    this.opencodePort = this.discoverPort();
+    if (!this.opencodePort) {
+      console.warn('[SessionBridge] rediscover: cannot find opencode port');
+      return false;
+    }
+
+    this.sessionId = this.discoverSession();
+    if (!this.sessionId) {
+      console.warn('[SessionBridge] rediscover: cannot find active session');
+      return false;
+    }
+
+    if (this.opencodePort !== oldPort || this.sessionId !== oldSession) {
+      console.log(`[SessionBridge] rediscovered: port=${oldPort}→${this.opencodePort} session=${oldSession}→${this.sessionId}`);
+      if (this.sseRequest) {
+        this.sseRequest.destroy();
+        this.sseRequest = undefined;
+      }
+      this.connectSSE();
+    }
+    return true;
+  }
+
   public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): boolean {
     if (!this.sessionId || !this.opencodePort) {
-      onFail(taskId, 'SessionBridge not initialized');
-      return false;
+      if (!this.rediscover()) {
+        onFail(taskId, 'SessionBridge not initialized and rediscovery failed');
+        return false;
+      }
     }
 
     this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
@@ -110,8 +139,8 @@ export class SessionBridge {
     if (this.pending.size > 0) return true;
     try {
       const raw = execSync(
-        `curl -s http://127.0.0.1:${this.opencodePort}/session/status`,
-        { encoding: 'utf-8', timeout: 3000 },
+        `curl -s --max-time 5 http://127.0.0.1:${this.opencodePort}/session/status`,
+        { encoding: 'utf-8', timeout: 8000 },
       );
       const statuses = JSON.parse(raw) as Record<string, { type: string }>;
       const status = statuses[this.sessionId!];
@@ -143,11 +172,15 @@ export class SessionBridge {
 
     const doPost = (path: string, body: string): Promise<number> => {
       return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          req.destroy();
+          reject(new Error(`HTTP POST ${path} timed out after 10s`));
+        }, 10_000);
         const req = http.request(
           { hostname: '127.0.0.1', port, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-          (res) => { res.resume(); resolve(res.statusCode ?? 0); },
+          (res) => { res.resume(); clearTimeout(timer); resolve(res.statusCode ?? 0); },
         );
-        req.on('error', reject);
+        req.on('error', (err) => { clearTimeout(timer); reject(err); });
         req.write(body);
         req.end();
       });
@@ -212,8 +245,18 @@ export class SessionBridge {
         this.localQueue.unshift({ taskId, instruction, onOutput, onComplete, onFail });
         this.scheduleIdleDrain();
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`[SessionBridge] inject failed for taskId=${taskId}: ${errMsg}`);
         this.pendingCorrelation = undefined;
-        this.settle(taskId, `TUI submit error: ${err instanceof Error ? err.message : String(err)}`);
+        this.pending.delete(taskId);
+
+        if (this.rediscover()) {
+          console.log(`[SessionBridge] rediscovered after failure, re-queuing taskId=${taskId}`);
+          this.localQueue.unshift({ taskId, instruction, onOutput, onComplete, onFail });
+          this.scheduleIdleDrain();
+        } else {
+          onFail(taskId, `TUI submit error: ${errMsg} (rediscovery also failed)`);
+        }
       }
     })();
   }

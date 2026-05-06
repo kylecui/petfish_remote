@@ -165,19 +165,26 @@ export class ConnectorClient {
       this.send(createEnvelope(MSG.TASK_OUTPUT, { taskId, stream, chunk }, taskId));
     };
     const onComplete = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => {
+      console.log(`[task] completed taskId=${taskId} exitCode=${exitCode} stdout=${stdout.length}B`);
       this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt }, taskId));
     };
     const onFail = (taskId: string, error: string) => {
+      console.log(`[task] failed taskId=${taskId} error=${error}`);
       this.send(createEnvelope(MSG.TASK_FAIL, { taskId, error }, taskId));
     };
 
     if (this.sessionBridge) {
-      this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
       const instruction = payload.rawInstruction ?? payload.instruction;
-      this.sessionBridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
+      console.log(`[task] routing to SessionBridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
+      this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
+      const ok = this.sessionBridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
+      if (!ok) {
+        console.warn(`[task] SessionBridge.prompt returned false for taskId=${payload.taskId}`);
+      }
       return;
     }
 
+    console.log(`[task] routing to LocalTaskExecutor taskId=${payload.taskId}`);
     const accepted = this.executor.execute(
       payload.taskId,
       payload.projectId,
