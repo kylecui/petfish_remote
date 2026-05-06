@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
+import type { TelegramDeps } from './adapters/telegram/TelegramAdapter.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
 import { SessionManager } from './core/SessionManager.js';
@@ -95,7 +96,12 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
   try {
     parsed = commandRouter.parseCommand(event.text);
   } catch {
-    return;
+    const session = sessionManager.getSession(event.chat_id);
+    if (session?.project_id && !event.text.startsWith('/')) {
+      parsed = { name: 'ask' as const, args: [event.text], rawText: event.text };
+    } else {
+      return;
+    }
   }
 
   let responseText: string;
@@ -147,7 +153,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
       }
-      const instruction = parsed.args.join(' ');
+      const instruction = parsed.args.length > 0 ? parsed.args.join(' ') : parsed.rawText;
       if (!instruction) {
         responseText = 'Usage: /pf ask <instruction>';
         break;
@@ -229,7 +235,15 @@ let telegramAdapter: TelegramAdapter | undefined;
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 if (telegramToken) {
-  telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent);
+  const telegramDeps: TelegramDeps = {
+    listProjects: (userId: string) =>
+      projectRegistry.listProjects().filter((p) => projectRegistry.isUserAllowed(p.id, userId)),
+    getBinding: (chatId: string) => sessionManager.getSession(chatId) ?? undefined,
+    bindProject: (chatId: string, projectId: string) => sessionManager.bindProject(chatId, projectId),
+    isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),
+  };
+
+  telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent, telegramDeps);
 
   process.once('SIGINT', () => {
     void telegramAdapter?.stop();
