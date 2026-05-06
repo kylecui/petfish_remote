@@ -89,6 +89,13 @@ export class RegistrationService {
     return this.connectorTokens.get(userId);
   }
 
+  public resolveUserByToken(token: string): string | undefined {
+    for (const [userId, t] of this.connectorTokens) {
+      if (t === token) return userId;
+    }
+    return undefined;
+  }
+
   public getUserProjects(userId: string): Set<string> {
     return this.userProjects.get(userId) ?? new Set();
   }

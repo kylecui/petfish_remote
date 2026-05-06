@@ -110,7 +110,7 @@ if (config.gateway.enabled) {
 
   gateway.on('connector:change', (connectorId: string, info: unknown) => {
     if (info && typeof info === 'object' && 'projects' in info) {
-      const connInfo = info as { projects: Array<{ id: string; path: string }> };
+      const connInfo = info as { projects: Array<{ id: string; path: string }>; userId?: string };
       for (const proj of connInfo.projects) {
         if (!projectRegistry.getProject(proj.id)) {
           projectRegistry.addProject({
@@ -119,13 +119,13 @@ if (config.gateway.enabled) {
             runtime: 'connector',
             path: proj.path,
             default_mode: 'read_only',
-            allowed_users: [],
+            allowed_users: connInfo.userId ? [connInfo.userId] : [],
             readme_files: [],
             test_commands: {},
             risk_profile: 'default',
             secrets_policy: 'mask',
           });
-          console.log(`[auto-register] Project ${proj.id} added from connector ${connectorId}`);
+          console.log(`[auto-register] Project ${proj.id} added from connector ${connectorId}${connInfo.userId ? ` for user ${connInfo.userId}` : ''}`);
         }
       }
     }

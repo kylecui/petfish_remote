@@ -248,12 +248,14 @@ export class ConnectorGateway extends EventEmitter {
         authenticated = true;
         connectorId = payload.connectorId;
 
+        const userId = this.options.registrationService?.resolveUserByToken(payload.token);
         const info: ConnectorInfo = {
           connectorId: payload.connectorId,
           hostname: payload.hostname,
           projects: payload.projects,
           connectedAt: new Date().toISOString(),
           ws,
+          userId,
         };
         this.registry.register(info);
         this.emit('connector:change', connectorId, info);

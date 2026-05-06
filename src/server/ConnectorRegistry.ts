@@ -6,6 +6,7 @@ export interface ConnectorInfo {
   projects: Array<{ id: string; path: string; opencodeAvailable: boolean }>;
   connectedAt: string;
   ws: WebSocket;
+  userId?: string;
 }
 
 export interface PendingReconnect {
