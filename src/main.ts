@@ -127,6 +127,19 @@ if (config.gateway.enabled) {
 
     if (!telegramAdapter) return;
     const status = info ? '🟢 online' : '🔴 offline';
+
+    if (!info) {
+      const userChatId = connectorIdToChatId.get(connectorId);
+      if (userChatId) {
+        void telegramAdapter.sendMessage({
+          platform: 'telegram',
+          chat_id: userChatId,
+          message_type: 'text',
+          text: `⚠️ Connector \`${connectorId}\` disconnected. It may be restarting — replies paused until reconnect.`,
+        });
+      }
+    }
+
     const adminChatId = process.env.PETFISH_ADMIN_CHAT_ID;
     if (adminChatId) {
       void telegramAdapter.sendMessage({
@@ -397,6 +410,20 @@ if (telegramToken) {
 
   const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);
+
+    if (telegramAdapter) {
+      const chatIds = new Set([...taskIdToChatId.values(), ...connectorIdToChatId.values()]);
+      const notifications = [...chatIds].map((chatId) =>
+        telegramAdapter!.sendMessage({
+          platform: 'telegram',
+          chat_id: chatId,
+          message_type: 'text',
+          text: '🔄 PetFish Remote is restarting — back in a few seconds.',
+        }).catch(() => {}),
+      );
+      await Promise.allSettled(notifications);
+    }
+
     const timeout = setTimeout(() => {
       console.error('Graceful shutdown timed out, forcing exit');
       process.exit(1);
