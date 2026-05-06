@@ -41,15 +41,22 @@ export class RemoteRuntime implements RuntimeConnector {
     };
   }
 
-  public run(command: RuntimeCommand): Promise<RuntimeResult> {
+  public async run(command: RuntimeCommand): Promise<RuntimeResult> {
     const taskId = command.taskId;
     if (!taskId) {
       return Promise.reject(new Error('RemoteRuntime requires command.taskId'));
     }
 
-    const info = this.gateway.registry.get(this.connectorId);
-    if (!info) {
-      return Promise.reject(new Error(`Connector ${this.connectorId} is not connected`));
+    const maxRetries = 3;
+    const retryDelays = [5000, 10000, 15000];
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const info = this.gateway.registry.get(this.connectorId);
+      if (info) break;
+      if (attempt === maxRetries) {
+        return Promise.reject(new Error(`Connector ${this.connectorId} is not connected`));
+      }
+      console.log(`[remote] Connector ${this.connectorId} not connected, retry ${attempt + 1}/${maxRetries} in ${retryDelays[attempt]}ms...`);
+      await new Promise(r => setTimeout(r, retryDelays[attempt]));
     }
 
     return new Promise<RuntimeResult>((resolve, reject) => {

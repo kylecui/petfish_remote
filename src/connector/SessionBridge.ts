@@ -31,7 +31,9 @@ export class SessionBridge {
   private sseRequest: http.ClientRequest | undefined;
   private sseReconnectTimer: NodeJS.Timeout | undefined;
   private idleDrainTimer: NodeJS.Timeout | undefined;
+  private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private readonly idleConfirmMs = 1500;
+  private readonly settleGraceMs = 2000;
   private lastCompletedAssistantId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
@@ -181,6 +183,8 @@ export class SessionBridge {
   public stop(): void {
     this.stopped = true;
     this.cancelIdleDrain();
+    for (const timer of this.settleTimers.values()) clearTimeout(timer);
+    this.settleTimers.clear();
     if (this.sseReconnectTimer) {
       clearTimeout(this.sseReconnectTimer);
       this.sseReconnectTimer = undefined;
@@ -257,11 +261,6 @@ export class SessionBridge {
       return;
     }
 
-    const interested = ['message.updated', 'message.part.updated', 'session.idle', 'session.status'];
-    if (interested.includes(event.type)) {
-      console.log(`[SSE] ${event.type} pending=${this.pending.size} msgMap=${this.messageToTask.size}`);
-    }
-
     if (event.type === 'message.updated') {
       this.handleMessageUpdated(event.properties);
     } else if (event.type === 'message.part.updated') {
@@ -278,8 +277,7 @@ export class SessionBridge {
     const info = props['info'] as { id?: string; role?: string; parentID?: string; time?: { completed?: number } } | undefined;
     if (!info) return;
 
-    console.log(`[SSE] message.updated role=${info.role} id=${info.id} parentID=${info.parentID} completed=${!!info.time?.completed}`);
-
+    // Correlate first user message after TUI submit to the pending task
     if (info.role === 'user' && info.id && this.pendingCorrelation) {
       const taskId = this.pendingCorrelation;
       this.pendingCorrelation = undefined;
@@ -287,7 +285,7 @@ export class SessionBridge {
       if (entry) {
         entry.userMessageId = info.id;
         this.messageToTask.set(info.id, taskId);
-        console.log(`[SSE] correlated user msg ${info.id} → taskId=${taskId}`);
+        console.log(`[SessionBridge] correlated user msg ${info.id} → task=${taskId}`);
       }
     }
 
@@ -295,15 +293,20 @@ export class SessionBridge {
       this.lastCompletedAssistantId = info.id;
     }
 
+    // Track assistant messages that belong to our injected user message
     if (info.role === 'assistant' && info.parentID) {
       const taskId = this.messageToTask.get(info.parentID);
-      console.log(`[SSE] assistant parentID=${info.parentID} → taskId=${taskId ?? 'NONE'} (known keys: ${[...this.messageToTask.keys()].join(', ')})`);
       if (taskId) {
         const entry = this.pending.get(taskId);
         if (entry) {
           entry.assistantMessageId = info.id;
           if (info.id) {
             this.messageToTask.set(info.id, taskId);
+          }
+          if (info.time?.completed) {
+            this.scheduleSettleOnComplete(taskId);
+          } else {
+            this.cancelSettleTimer(taskId);
           }
         }
       }
@@ -315,8 +318,6 @@ export class SessionBridge {
     const part = props['part'] as { type?: string; messageID?: string; text?: string; id?: string } | undefined;
     const delta = props['delta'] as string | undefined;
     if (!part) return;
-
-    console.log(`[SSE] part type=${part.type} msgId=${part.messageID} delta=${delta?.length ?? 'undef'} textLen=${part.text?.length ?? 0} pending=${this.pending.size}`);
 
     if (part.type !== 'text') return;
 
@@ -372,6 +373,32 @@ export class SessionBridge {
     }
   }
 
+  private scheduleSettleOnComplete(taskId: string): void {
+    const existing = this.settleTimers.get(taskId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.settleTimers.delete(taskId);
+      const entry = this.pending.get(taskId);
+      if (!entry || entry.settled) return;
+      console.log(`[SessionBridge] settling task=${taskId} (assistant completed, grace expired)`);
+      entry.settled = true;
+      this.cleanup(taskId);
+      entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
+      this.scheduleIdleDrain();
+    }, this.settleGraceMs);
+
+    this.settleTimers.set(taskId, timer);
+  }
+
+  private cancelSettleTimer(taskId: string): void {
+    const timer = this.settleTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.settleTimers.delete(taskId);
+    }
+  }
+
   private settle(taskId: string, error: string): void {
     const entry = this.pending.get(taskId);
     if (!entry || entry.settled) return;
@@ -381,6 +408,7 @@ export class SessionBridge {
   }
 
   private cleanup(taskId: string): void {
+    this.cancelSettleTimer(taskId);
     const entry = this.pending.get(taskId);
     if (entry) {
       this.messageToTask.delete(entry.userMessageId);
