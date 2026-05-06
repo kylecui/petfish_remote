@@ -119,18 +119,14 @@ function Invoke-Start {
 
     $env:OPENCODE_PID = $opencodePid
 
-    # Start connector as a fully detached background process.
-    # CRITICAL: Do NOT use -RedirectStandardOutput/-RedirectStandardError here.
-    # Those params force UseShellExecute=false, which keeps the child in the
-    # parent's process group — opencode then waits for the entire tree to exit.
-    # Instead, wrap in cmd /c for file redirection while using ShellExecute=true
-    # (fully detached, no handle inheritance, no process-tree tracking).
-    $cmdArgs = "/c `"`"$nodeExe`" `"$ConnectorJs`" `"$Config`" > `"$logFile`" 2> `"$logFile.err`"`""
-    Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden
+    # Start-Process without -RedirectStandardOutput uses ShellExecute=true:
+    # fully detached, no handle inheritance, no process-tree tracking.
+    # Node handles logging internally via --log-file.
+    $argString = "`"$ConnectorJs`" `"$Config`" --log-file `"$logFile`""
+    Start-Process -FilePath $nodeExe -ArgumentList $argString -WindowStyle Hidden
 
     Start-Sleep -Seconds 2
 
-    # Find the node.exe process by matching our connector script in its command line
     $nodeProc = Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%connector/main.js%' OR CommandLine LIKE '%connector\\main.js%'" |
         Sort-Object CreationDate -Descending | Select-Object -First 1
 

@@ -2,6 +2,17 @@ import { loadConnectorConfig, type ConnectorProjectConfig } from './connectorCon
 import { ConnectorClient } from './ConnectorClient.js';
 import { LocalTaskExecutor } from './LocalTaskExecutor.js';
 import { createBridge, type AgentBridge } from './bridges/index.js';
+import * as fs from 'node:fs';
+
+// --log-file: redirect stdout/stderr to file (enables detached process on Windows)
+const logFileIdx = process.argv.indexOf('--log-file');
+if (logFileIdx !== -1 && process.argv[logFileIdx + 1]) {
+  const logPath = process.argv[logFileIdx + 1];
+  const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+  process.stdout.write = logStream.write.bind(logStream);
+  process.stderr.write = logStream.write.bind(logStream);
+  process.argv.splice(logFileIdx, 2);
+}
 
 const configPath = process.argv[2] ?? undefined;
 
