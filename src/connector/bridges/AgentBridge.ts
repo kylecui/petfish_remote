@@ -33,10 +33,12 @@ export interface AgentBridge {
 
 export interface BridgeConfig {
   agent?: 'auto' | AgentType;
+  cwd?: string;
 }
 
 export async function createBridge(config: BridgeConfig): Promise<AgentBridge | undefined> {
   const agent = config.agent ?? 'auto';
+  const cwd = config.cwd ?? process.cwd();
 
   if (agent === 'opencode' || agent === 'auto') {
     if (process.env['OPENCODE_PID'] || agent === 'opencode') {
@@ -49,14 +51,14 @@ export async function createBridge(config: BridgeConfig): Promise<AgentBridge | 
 
   if (agent === 'gemini') {
     const { GeminiBridge } = await import('./GeminiBridge.js');
-    const bridge = new GeminiBridge({});
+    const bridge = new GeminiBridge({ cwd });
     await bridge.init();
     return bridge;
   }
 
   if (agent === 'codex') {
     const { CodexBridge } = await import('./CodexBridge.js');
-    const bridge = new CodexBridge({});
+    const bridge = new CodexBridge({ cwd });
     await bridge.init();
     return bridge;
   }

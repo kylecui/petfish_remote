@@ -22,7 +22,7 @@ const bridges = new Map<string, AgentBridge>();
 async function start() {
   for (const project of config!.projects) {
     try {
-      const bridge = await createBridge({ agent: project.agent });
+      const bridge = await createBridge({ agent: project.agent, cwd: project.path });
       if (bridge) {
         bridges.set(project.id, bridge);
         console.log(`[${project.id}] ${bridge.agentType} bridge active`);

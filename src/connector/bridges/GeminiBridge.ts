@@ -1,5 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-
 import type {
   AgentBridge,
   AgentType,
@@ -9,28 +7,103 @@ import type {
   QuestionCallback,
   PermissionCallback,
 } from './AgentBridge.js';
+import { JsonRpcTransport } from './JsonRpcTransport.js';
 
 export interface GeminiBridgeConfig {
   geminiBin?: string;
+  cwd: string;
+  apiKey?: string;
+}
+
+interface PendingTurn {
+  taskId: string;
+  onOutput: OutputCallback;
+  onComplete: CompleteCallback;
+  onFail: FailCallback;
+  stdout: string;
+  startedAt: string;
 }
 
 export class GeminiBridge implements AgentBridge {
   public readonly agentType: AgentType = 'gemini';
 
   private readonly bin: string;
-  private readonly activeProcesses = new Map<string, ChildProcess>();
+  private readonly cwd: string;
+  private readonly apiKey: string | undefined;
+  private transport: JsonRpcTransport | undefined;
+  private sessionId: string | undefined;
+  private activeTurn: PendingTurn | undefined;
+  private onPermission: PermissionCallback | undefined;
+  private lastActiveTaskId: string | undefined;
+  private permissionIdCounter = 0;
+  private readonly pendingPermissions = new Map<string, { rpcId: number | string }>();
+  private initPromise: Promise<void> | undefined;
 
   public constructor(config: GeminiBridgeConfig) {
     this.bin = config.geminiBin ?? 'gemini';
+    this.cwd = config.cwd;
+    this.apiKey = config.apiKey ?? process.env['GEMINI_API_KEY'];
   }
 
-  public async init(): Promise<void> {}
+  public async init(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInit();
+    return this.initPromise;
+  }
+
+  private async doInit(): Promise<void> {
+    this.transport = new JsonRpcTransport({ requestTimeoutMs: 30_000 });
+    this.transport.spawn(this.bin, ['--acp']);
+
+    this.transport.on('notification', (method: string, params: unknown) => {
+      this.handleNotification(method, params);
+    });
+
+    this.transport.on('request', (id: number | string, method: string, params: unknown) => {
+      this.handleServerRequest(id, method, params);
+    });
+
+    this.transport.on('close', () => {
+      if (this.activeTurn) {
+        this.activeTurn.onFail(this.activeTurn.taskId, 'Gemini process exited unexpectedly');
+        this.activeTurn = undefined;
+      }
+      this.sessionId = undefined;
+      this.initPromise = undefined;
+    });
+
+    await this.transport.request('initialize', {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      clientInfo: { name: 'petfish-remote', version: '1.0.0' },
+    });
+
+    if (this.apiKey) {
+      await this.transport.request('authenticate', {
+        methodId: 'use_gemini',
+        _meta: { 'api-key': this.apiKey },
+      });
+    }
+
+    const result = await this.transport.request<{ sessionId: string }>('session/new', {
+      cwd: this.cwd,
+      mcpServers: [],
+    });
+
+    this.sessionId = result.sessionId;
+  }
 
   public stop(): void {
-    for (const [taskId, proc] of this.activeProcesses) {
-      proc.kill('SIGTERM');
-      this.activeProcesses.delete(taskId);
+    if (this.transport) {
+      if (this.sessionId) {
+        this.transport.notify('session/cancel', { sessionId: this.sessionId });
+      }
+      this.transport.kill();
+      this.transport = undefined;
     }
+    this.sessionId = undefined;
+    this.activeTurn = undefined;
+    this.initPromise = undefined;
   }
 
   public prompt(
@@ -40,114 +113,174 @@ export class GeminiBridge implements AgentBridge {
     onComplete: CompleteCallback,
     onFail: FailCallback,
   ): boolean {
-    const proc = spawn(this.bin, ['-p', instruction, '--output-format', 'stream-json'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
+    if (!this.transport?.isAlive || !this.sessionId) {
+      onFail(taskId, 'Gemini ACP session not initialized');
+      return false;
+    }
 
-    this.activeProcesses.set(taskId, proc);
-    const startedAt = new Date().toISOString();
-    let stdout = '';
-    let stderr = '';
-    let lineBuffer = '';
+    if (this.activeTurn) {
+      onFail(taskId, 'A turn is already in progress');
+      return false;
+    }
 
-    proc.stdout!.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      lineBuffer += text;
+    this.lastActiveTaskId = taskId;
+    const turn: PendingTurn = {
+      taskId,
+      onOutput,
+      onComplete,
+      onFail,
+      stdout: '',
+      startedAt: new Date().toISOString(),
+    };
+    this.activeTurn = turn;
 
-      const lines = lineBuffer.split('\n');
-      lineBuffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        this.handleJsonLine(taskId, line, onOutput);
+    this.transport.request<{ stopReason: string }>('session/prompt', {
+      sessionId: this.sessionId,
+      prompt: [{ type: 'text', text: instruction }],
+    }).then((result) => {
+      if (this.activeTurn === turn) {
+        this.activeTurn = undefined;
+        const finishedAt = new Date().toISOString();
+        const exitCode = result.stopReason === 'end_turn' ? 0 : 1;
+        onComplete(taskId, exitCode, turn.stdout, '', turn.startedAt, finishedAt);
       }
-
-      stdout += text;
-    });
-
-    proc.stderr!.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      onOutput(taskId, 'stderr', text);
-    });
-
-    proc.on('close', (code) => {
-      if (lineBuffer.trim()) {
-        this.handleJsonLine(taskId, lineBuffer, onOutput);
+    }).catch((err: unknown) => {
+      if (this.activeTurn === turn) {
+        this.activeTurn = undefined;
+        const msg = err instanceof Error ? err.message : String(err);
+        onFail(taskId, msg);
       }
-      this.activeProcesses.delete(taskId);
-      const finishedAt = new Date().toISOString();
-      if (code === 0 || code === null) {
-        onComplete(taskId, code ?? 0, stdout, stderr, startedAt, finishedAt);
-      } else {
-        onFail(taskId, `gemini exited with code ${code}: ${stderr.slice(0, 500)}`);
-      }
-    });
-
-    proc.on('error', (err) => {
-      this.activeProcesses.delete(taskId);
-      onFail(taskId, `Failed to spawn gemini: ${err.message}`);
     });
 
     return true;
   }
 
-  private handleJsonLine(taskId: string, line: string, onOutput: OutputCallback): void {
-    try {
-      const event = JSON.parse(line) as { type: string; [key: string]: unknown };
-
-      switch (event.type) {
-        case 'message': {
-          const delta = event['delta'] as string | undefined;
-          if (delta) {
-            onOutput(taskId, 'stdout', delta);
-          }
-          break;
-        }
-        case 'tool_use': {
-          const toolName = event['tool_name'] as string | undefined;
-          const params = event['parameters'] as Record<string, unknown> | undefined;
-          onOutput(taskId, 'stdout', `\n🔧 ${toolName ?? 'tool'}(${JSON.stringify(params ?? {}).slice(0, 200)})\n`);
-          break;
-        }
-        case 'tool_result': {
-          const status = event['status'] as string | undefined;
-          const output = event['output'] as string | undefined;
-          if (output) {
-            const preview = output.length > 300 ? output.slice(0, 300) + '...' : output;
-            onOutput(taskId, 'stdout', `  → ${status}: ${preview}\n`);
-          }
-          break;
-        }
-        case 'result':
-        case 'init':
-          break;
-        default:
-          break;
-      }
-    } catch {
-      if (line.trim()) {
-        onOutput(taskId, 'stdout', line + '\n');
-      }
-    }
-  }
-
   public cancel(taskId: string): void {
-    const proc = this.activeProcesses.get(taskId);
-    if (proc) {
-      proc.kill('SIGTERM');
-      this.activeProcesses.delete(taskId);
+    if (this.activeTurn?.taskId === taskId && this.transport?.isAlive && this.sessionId) {
+      this.transport.notify('session/cancel', { sessionId: this.sessionId });
     }
   }
 
-  public async requestNewSession(): Promise<void> {}
+  public async requestNewSession(): Promise<void> {
+    this.stop();
+    await this.init();
+  }
 
-  public setQuestionCallback(_cb: QuestionCallback): void {}
+  public setQuestionCallback(_cb: QuestionCallback): void {
+    // Gemini ACP has no question mechanism (ask_user disabled in ACP mode)
+  }
 
-  public setPermissionCallback(_cb: PermissionCallback): void {}
+  public setPermissionCallback(cb: PermissionCallback): void {
+    this.onPermission = cb;
+  }
 
-  public answerQuestion(_questionId: string, _answers: string[][]): void {}
+  public answerQuestion(_questionId: string, _answers: string[][]): void {
+    // Gemini ACP has no question mechanism (ask_user disabled in ACP mode)
+  }
 
-  public answerPermission(_permissionId: string, _allowed: boolean): void {}
+  public answerPermission(permissionId: string, allowed: boolean): void {
+    const pending = this.pendingPermissions.get(permissionId);
+    if (!pending || !this.transport?.isAlive) return;
+    this.pendingPermissions.delete(permissionId);
+
+    if (allowed) {
+      this.transport.respond(pending.rpcId, {
+        outcome: { outcome: 'selected', optionId: 'proceed_once' },
+      });
+    } else {
+      this.transport.respond(pending.rpcId, {
+        outcome: { outcome: 'cancelled' },
+      });
+    }
+  }
+
+  private handleNotification(method: string, params: unknown): void {
+    if (method !== 'session/update' || !this.activeTurn) return;
+
+    const p = params as { update?: { sessionUpdate?: string; [key: string]: unknown } } | undefined;
+    const update = p?.update;
+    if (!update) return;
+
+    switch (update.sessionUpdate) {
+      case 'agent_message_chunk': {
+        const content = update.content as { type?: string; text?: string } | undefined;
+        if (content?.text) {
+          this.activeTurn.stdout += content.text;
+          this.activeTurn.onOutput(this.activeTurn.taskId, 'stdout', content.text);
+        }
+        break;
+      }
+      case 'tool_call': {
+        const title = update.title as string | undefined;
+        const kind = update.kind as string | undefined;
+        if (title) {
+          const prefix = kind ? `🔧 [${kind}] ` : '🔧 ';
+          this.activeTurn.onOutput(this.activeTurn.taskId, 'stdout', `\n${prefix}${title}\n`);
+        }
+        break;
+      }
+      case 'tool_call_update': {
+        const status = update.status as string | undefined;
+        const title = update.title as string | undefined;
+        if (status === 'completed' && title) {
+          this.activeTurn.onOutput(this.activeTurn.taskId, 'stdout', `  ✓ ${title}\n`);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private handleServerRequest(id: number | string, method: string, params: unknown): void {
+    if (method === 'permission/request') {
+      this.handlePermissionRequest(id, params);
+    } else {
+      this.transport?.respondError(id, -32601, `Method not supported: ${method}`);
+    }
+  }
+
+  private handlePermissionRequest(rpcId: number | string, params: unknown): void {
+    const p = params as {
+      sessionId?: string;
+      options?: Array<{ optionId: string; name: string; kind: string }>;
+      toolCall?: { toolCallId?: string; title?: string; kind?: string; content?: unknown[] };
+    } | undefined;
+
+    if (!p) {
+      this.transport?.respond(rpcId, { outcome: { outcome: 'cancelled' } });
+      return;
+    }
+
+    const permissionId = `gemini_perm_${++this.permissionIdCounter}`;
+    this.pendingPermissions.set(permissionId, { rpcId });
+
+    const taskId = this.activeTurn?.taskId ?? this.lastActiveTaskId ?? `permission_${permissionId}`;
+    const tool = p.toolCall?.title ?? p.toolCall?.kind ?? 'unknown';
+    const input: Record<string, unknown> = {};
+    if (p.toolCall?.content && Array.isArray(p.toolCall.content)) {
+      for (const item of p.toolCall.content) {
+        const c = item as { type?: string; path?: string; oldText?: string; newText?: string } | undefined;
+        if (c?.type === 'diff') {
+          input['path'] = c.path;
+          input['diff'] = `- ${(c.oldText ?? '').slice(0, 200)}\n+ ${(c.newText ?? '').slice(0, 200)}`;
+        }
+      }
+    }
+
+    if (this.onPermission) {
+      this.onPermission(taskId, {
+        taskId,
+        permissionId,
+        sessionId: this.sessionId ?? '',
+        tool,
+        input,
+      });
+    } else {
+      this.transport?.respond(rpcId, {
+        outcome: { outcome: 'selected', optionId: 'proceed_once' },
+      });
+      this.pendingPermissions.delete(permissionId);
+    }
+  }
 }
