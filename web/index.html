@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="PetFish Remote 胖鱼遥控器：用 Telegram 遥控你的 AI 编程助手。Control your AI coding agent from Telegram."
+    />
+    <title>PetFish Remote 胖鱼遥控器</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="lang-zh">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="#top" aria-label="PetFish Remote home">
+          <span class="brand-mark" aria-hidden="true">🐟</span>
+          <span class="brand-lockup">
+            <span class="brand-name">PetFish Remote</span>
+            <span class="brand-ascii">&gt;&lt;(((^&gt;</span>
+          </span>
+        </a>
+
+        <div class="header-actions">
+          <div class="lang-toggle" role="group" aria-label="Language switcher">
+            <button class="lang-option is-active" type="button" data-lang="zh" aria-pressed="true">
+              中文
+            </button>
+            <button class="lang-option" type="button" data-lang="en" aria-pressed="false">
+              English
+            </button>
+          </div>
+
+          <a
+            class="button button-ghost button-small"
+            href="https://github.com/kylecui/petfish_remote"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero section surface surface-hero">
+          <div class="hero-copy">
+            <div class="eyebrow">
+              <span class="copy-zh">Telegram 控制面 · Beta · 为 opencode 用户而生</span>
+              <span class="copy-en">Telegram control plane · Beta · built for opencode users</span>
+            </div>
+
+            <h1 class="hero-title">
+              <span class="copy-zh">PetFish Remote 胖鱼遥控器</span>
+              <span class="copy-en">PetFish Remote</span>
+            </h1>
+
+            <p class="hero-tagline lead">
+              <span class="copy-zh">用 Telegram 遥控你的 AI 编程助手</span>
+              <span class="copy-en">Control your AI coding agent from Telegram</span>
+            </p>
+
+            <p class="hero-summary">
+              <span class="copy-zh">
+                把手机变成 opencode 的轻量控制台：发指令、看输出、切项目、开新会话，不必一直守在终端前。
+              </span>
+              <span class="copy-en">
+                Turn your phone into a lightweight control console for opencode: send instructions, watch streamed output, switch projects, and start fresh sessions without living in a terminal.
+              </span>
+            </p>
+
+            <div class="hero-actions">
+              <a class="button button-primary" href="#quick-start">
+                <span class="copy-zh">快速安装</span>
+                <span class="copy-en">Quick Install</span>
+              </a>
+              <a class="button button-secondary" href="#architecture">
+                <span class="copy-zh">查看架构</span>
+                <span class="copy-en">See architecture</span>
+              </a>
+            </div>
+
+            <ul class="hero-chips" aria-label="Product highlights">
+              <li>Telegram</li>
+              <li>opencode</li>
+              <li>WebSocket</li>
+              <li>v0.1.0 Beta</li>
+            </ul>
+          </div>
+
+          <div class="hero-panel" aria-hidden="true">
+            <div class="hero-card hero-card-primary">
+              <div class="hero-card-label">Live Route</div>
+              <div class="hero-route">
+                <span>You</span>
+                <span>→</span>
+                <span>Bot</span>
+                <span>→</span>
+                <span>Connector</span>
+                <span>→</span>
+                <span>Session</span>
+              </div>
+              <div class="hero-terminal">
+                <div class="terminal-dots">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <div class="terminal-line">@petfish_bot /start</div>
+                <div class="terminal-line">curl -sSL remote.petfish.ai/install | bash</div>
+                <div class="terminal-line">Streaming reply back to Telegram…</div>
+              </div>
+            </div>
+
+            <div class="hero-card hero-card-secondary">
+              <div class="hero-card-label">
+                <span class="copy-zh">品牌信号</span>
+                <span class="copy-en">Brand signal</span>
+              </div>
+              <div class="hero-ascii">&gt;&lt;(((^&gt;</div>
+              <p>
+                <span class="copy-zh">像鱼群一样轻快，像终端一样可靠。</span>
+                <span class="copy-en">Light like a school of fish, reliable like your terminal.</span>
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <p class="eyebrow">
+              <span class="copy-zh">核心能力</span>
+              <span class="copy-en">What it does</span>
+            </p>
+            <h2>
+              <span class="copy-zh">让 AI 编程助手离开桌面，也能保持可控</span>
+              <span class="copy-en">Keep your coding agent controllable beyond the desk</span>
+            </h2>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card surface">
+              <div class="feature-icon" aria-hidden="true">🎮</div>
+              <h3>
+                <span class="copy-zh">远程操控</span>
+                <span class="copy-en">Remote Control</span>
+              </h3>
+              <p>
+                <span class="copy-zh">无论你在地铁、会议室还是沙发上，都能通过 Telegram 向 opencode 发送任务和跟进指令。</span>
+                <span class="copy-en">Send instructions to opencode from anywhere through Telegram, whether you're commuting, in a meeting, or away from your desk.</span>
+              </p>
+            </article>
+
+            <article class="feature-card surface">
+              <div class="feature-icon" aria-hidden="true">⚡</div>
+              <h3>
+                <span class="copy-zh">实时响应</span>
+                <span class="copy-en">Real-time Response</span>
+              </h3>
+              <p>
+                <span class="copy-zh">AI 输出会持续回流到聊天窗口，你可以第一时间看到执行进度、摘要和关键结果。</span>
+                <span class="copy-en">Watch AI output stream back into your chat instantly so you can follow progress, summaries, and key results in real time.</span>
+              </p>
+            </article>
+
+            <article class="feature-card surface">
+              <div class="feature-icon" aria-hidden="true">🔒</div>
+              <h3>
+                <span class="copy-zh">安全连接</span>
+                <span class="copy-en">Secure Connection</span>
+              </h3>
+              <p>
+                <span class="copy-zh">通过加密 WebSocket、基于 token 的鉴权和用户 allowlist，把远程控制能力放在你自己的安全边界里。</span>
+                <span class="copy-en">Keep remote control inside your security boundary with encrypted WebSocket transport, token-based auth, and a user allowlist.</span>
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="architecture">
+          <div class="section-heading">
+            <p class="eyebrow">
+              <span class="copy-zh">架构</span>
+              <span class="copy-en">Architecture</span>
+            </p>
+            <h2>
+              <span class="copy-zh">从 Telegram 到 opencode，会话链路一目了然</span>
+              <span class="copy-en">A clean session path from Telegram to opencode</span>
+            </h2>
+            <p class="section-copy">
+              <span class="copy-zh">You (Telegram) → Bot Server → Connector → opencode session</span>
+              <span class="copy-en">You (Telegram) → Bot Server → Connector → opencode session</span>
+            </p>
+          </div>
+
+          <div class="architecture surface">
+            <div class="flow-legend">
+              <span class="legend-pill">Telegram</span>
+              <span class="legend-pill">WSS</span>
+              <span class="legend-pill">Session Bridge</span>
+            </div>
+
+            <div class="architecture-flow" role="img" aria-label="Telegram to opencode architecture diagram">
+              <div class="flow-node flow-node-user">
+                <div class="node-title">
+                  <span class="copy-zh">你（Telegram）</span>
+                  <span class="copy-en">You (Telegram)</span>
+                </div>
+                <p>
+                  <span class="copy-zh">消息入口</span>
+                  <span class="copy-en">Message entry</span>
+                </p>
+              </div>
+
+              <div class="flow-arrow" aria-hidden="true">→</div>
+
+              <div class="flow-node">
+                <div class="node-title">Bot Server</div>
+                <p>
+                  <span class="copy-zh">云端 · 机器人服务 / 鉴权 / 路由</span>
+                  <span class="copy-en">Cloud · bot service / auth / routing</span>
+                </p>
+              </div>
+
+              <div class="flow-arrow" aria-hidden="true">→</div>
+
+              <div class="flow-node">
+                <div class="node-title">Connector</div>
+                <p>
+                  <span class="copy-zh">你的机器 · 保持连接 / 项目桥接</span>
+                  <span class="copy-en">Your machine · persistent link / project bridge</span>
+                </p>
+              </div>
+
+              <div class="flow-arrow" aria-hidden="true">→</div>
+
+              <div class="flow-node flow-node-session">
+                <div class="node-title">Session Bridge</div>
+                <p>
+                  <span class="copy-zh">opencode 进程 · 注入提示 / 回传输出</span>
+                  <span class="copy-en">opencode process · inject prompts / stream output</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="quick-start">
+          <div class="section-heading">
+            <p class="eyebrow">
+              <span class="copy-zh">快速开始</span>
+              <span class="copy-en">Quick Start</span>
+            </p>
+            <h2>
+              <span class="copy-zh">三步，把 Telegram 变成你的 AI 遥控器</span>
+              <span class="copy-en">Three steps to turn Telegram into your AI remote</span>
+            </h2>
+          </div>
+
+          <div class="quickstart-grid">
+            <ol class="steps" aria-label="Quick start steps">
+              <li class="step surface">
+                <span class="step-index">01</span>
+                <div>
+                  <h3>
+                    <span class="copy-zh">发送 <code>/start</code> 给 @petfish_bot</span>
+                    <span class="copy-en">Send <code>/start</code> to @petfish_bot</span>
+                  </h3>
+                  <p>
+                    <span class="copy-zh">在 Telegram 中打开机器人，拿到一次性安装 token。</span>
+                    <span class="copy-en">Open the bot in Telegram and receive your one-time install token.</span>
+                  </p>
+                </div>
+              </li>
+
+              <li class="step surface">
+                <span class="step-index">02</span>
+                <div>
+                  <h3>
+                    <span class="copy-zh">运行一行安装命令</span>
+                    <span class="copy-en">Run the one-line install command</span>
+                  </h3>
+                  <p>
+                    <span class="copy-zh">连接器会自动完成安装、注册并连回服务器。</span>
+                    <span class="copy-en">The connector installs itself, registers, and reconnects to the server automatically.</span>
+                  </p>
+                </div>
+              </li>
+
+              <li class="step surface">
+                <span class="step-index">03</span>
+                <div>
+                  <h3>
+                    <span class="copy-zh">开始在 Telegram 里写代码</span>
+                    <span class="copy-en">Start coding from Telegram</span>
+                  </h3>
+                  <p>
+                    <span class="copy-zh">直接发自然语言即可，PetFish Remote 会把消息送进 opencode 会话。</span>
+                    <span class="copy-en">Just type naturally. PetFish Remote forwards your message into the active opencode session.</span>
+                  </p>
+                </div>
+              </li>
+            </ol>
+
+            <aside class="install-card surface">
+              <div class="install-card-head">
+                <span class="install-pill">Install</span>
+                <span class="install-status">Beta</span>
+              </div>
+              <pre class="code-block"><code>curl -sSL https://remote.petfish.ai/install | bash -s -- &lt;token&gt;</code></pre>
+              <p class="install-note">
+                <span class="copy-zh">支持无构建静态部署；页面本体只依赖 HTML、CSS 和少量原生 JS。</span>
+                <span class="copy-en">Static, build-free delivery: the site only relies on HTML, CSS, and a touch of vanilla JS.</span>
+              </p>
+              <a class="button button-primary button-wide" href="https://t.me/petfish_bot" target="_blank" rel="noreferrer">
+                <span class="copy-zh">打开 @petfish_bot</span>
+                <span class="copy-en">Open @petfish_bot</span>
+              </a>
+            </aside>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <p class="eyebrow">
+              <span class="copy-zh">功能列表</span>
+              <span class="copy-en">Features</span>
+            </p>
+            <h2>
+              <span class="copy-zh">为移动端控制 AI 编程工作流而优化</span>
+              <span class="copy-en">Designed for AI coding workflows on the move</span>
+            </h2>
+          </div>
+
+          <div class="feature-list surface">
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">默认 ask 模式</span>
+                <span class="copy-en">Default ask mode</span>
+              </h3>
+              <p>
+                <span class="copy-zh">不需要额外前缀，像聊天一样自然发消息即可。</span>
+                <span class="copy-en">Just type naturally, with no command prefix required.</span>
+              </p>
+            </div>
+
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">InlineKeyboard 菜单（/pf）</span>
+                <span class="copy-en">InlineKeyboard menu (/pf)</span>
+              </h3>
+              <p>
+                <span class="copy-zh">常用动作按钮化，手机上更顺手。</span>
+                <span class="copy-en">Common actions become tap-friendly buttons for mobile control.</span>
+              </p>
+            </div>
+
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">多项目支持</span>
+                <span class="copy-en">Multi-project support</span>
+              </h3>
+              <p>
+                <span class="copy-zh">一个连接器可以桥接多个项目工作区。</span>
+                <span class="copy-en">One connector can bridge multiple project workspaces.</span>
+              </p>
+            </div>
+
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">自动版本检查与更新</span>
+                <span class="copy-en">Auto-version check &amp; update</span>
+              </h3>
+              <p>
+                <span class="copy-zh">启动时检测版本漂移，尽量保持客户端和服务端一致。</span>
+                <span class="copy-en">Version drift is checked on startup so client and server stay aligned.</span>
+              </p>
+            </div>
+
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">会话管理（/pf new）</span>
+                <span class="copy-en">Session management (/pf new)</span>
+              </h3>
+              <p>
+                <span class="copy-zh">快速开新会话，避免历史上下文干扰当前任务。</span>
+                <span class="copy-en">Start clean sessions fast and avoid old context bleeding into new work.</span>
+              </p>
+            </div>
+
+            <div class="feature-list-item">
+              <h3>
+                <span class="copy-zh">AI agent 自动启动集成</span>
+                <span class="copy-en">AI agent auto-start integration</span>
+              </h3>
+              <p>
+                <span class="copy-zh">可接入 AGENTS.md 流程，在 opencode 会话启动时自动挂载遥控能力。</span>
+                <span class="copy-en">Hook into AGENTS.md workflows so remote control comes online with each opencode session.</span>
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <p class="eyebrow">
+              <span class="copy-zh">文档与链接</span>
+              <span class="copy-en">Documentation</span>
+            </p>
+            <h2>
+              <span class="copy-zh">继续深入：客户端、服务端与源码</span>
+              <span class="copy-en">Go deeper: client docs, server docs, and source</span>
+            </h2>
+          </div>
+
+          <div class="docs-grid">
+            <article class="doc-card surface">
+              <p class="doc-kicker">Guide</p>
+              <h3>
+                <span class="copy-zh">客户端指南</span>
+                <span class="copy-en">Client Guide</span>
+              </h3>
+              <p>
+                <span class="copy-zh">了解安装、连接器行为和日常使用方式。</span>
+                <span class="copy-en">Learn installation, connector behavior, and day-to-day usage.</span>
+              </p>
+              <a class="doc-link copy-zh" href="/docs/zh/client-guide">打开文档 →</a>
+              <a class="doc-link copy-en" href="/docs/en/client-guide">Open docs →</a>
+            </article>
+
+            <article class="doc-card surface">
+              <p class="doc-kicker">Deploy</p>
+              <h3>
+                <span class="copy-zh">服务器部署</span>
+                <span class="copy-en">Server Guide</span>
+              </h3>
+              <p>
+                <span class="copy-zh">适合自部署场景，包含 Bot Server 与反向代理配置思路。</span>
+                <span class="copy-en">For self-hosting, including Bot Server deployment and reverse-proxy setup.</span>
+              </p>
+              <a class="doc-link copy-zh" href="/docs/zh/server-guide">查看部署文档 →</a>
+              <a class="doc-link copy-en" href="/docs/en/server-guide">Read deployment guide →</a>
+            </article>
+
+            <article class="doc-card surface">
+              <p class="doc-kicker">Source</p>
+              <h3>GitHub</h3>
+              <p>
+                <span class="copy-zh">查看代码、文档和版本演进，参与 PetFish Remote 的 Beta 共建。</span>
+                <span class="copy-en">Browse code, docs, and release history, and join the PetFish Remote beta journey.</span>
+              </p>
+              <a class="doc-link" href="https://github.com/kylecui/petfish_remote" target="_blank" rel="noreferrer">
+                Open repository →
+              </a>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer surface">
+        <div>
+          <p class="footer-title">PetFish Remote v0.1.0 (Beta)</p>
+          <p class="footer-copy">
+            <span class="copy-zh">PetFish 生态的一部分。</span>
+            <span class="copy-en">Part of the PetFish ecosystem.</span>
+          </p>
+        </div>
+
+        <div class="footer-links">
+          <a href="https://github.com/kylecui/petfish_remote" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="#quick-start">
+            <span class="copy-zh">快速安装</span>
+            <span class="copy-en">Quick Install</span>
+          </a>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      (() => {
+        const body = document.body;
+        const buttons = document.querySelectorAll('[data-lang]');
+
+        const setLanguage = (lang) => {
+          const normalized = lang === 'en' ? 'en' : 'zh';
+
+          body.classList.remove('lang-zh', 'lang-en');
+          body.classList.add(`lang-${normalized}`);
+          document.documentElement.lang = normalized === 'en' ? 'en' : 'zh-CN';
+
+          buttons.forEach((button) => {
+            const active = button.dataset.lang === normalized;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+          });
+        };
+
+        buttons.forEach((button) => {
+          button.addEventListener('click', () => setLanguage(button.dataset.lang));
+        });
+
+        setLanguage(body.classList.contains('lang-en') ? 'en' : 'zh');
+      })();
+    </script>
+  </body>
+</html>

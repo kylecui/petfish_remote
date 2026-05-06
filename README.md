@@ -1,90 +1,101 @@
 # PetFish Remote 胖鱼遥控器
 
-Chat-based control plane for safely operating opencode agents across project workspaces.
+> Control your opencode AI agent from Telegram — anywhere, anytime.
+>
+> 用 Telegram 遥控你的 opencode AI 编程助手。
 
-> 用聊天工具安全遥控你的opencode项目Agent。
+[![Beta](https://img.shields.io/badge/status-beta-blue)](https://remote.petfish.ai)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-green)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-gray)](./LICENSE)
 
-## Quick Start
+## Architecture 架构
+
+```
+┌─────────────┐        ┌─────────────────┐        ┌─────────────────────┐
+│  Telegram   │◄──────►│   Bot Server    │◄──WSS──►│   Connector (你的机器) │
+│  (You/你)   │  Bot API│ remote.petfish.ai│        │                     │
+└─────────────┘        └─────────────────┘        │  ┌───────────────┐  │
+                                                   │  │ Session Bridge │  │
+                                                   │  │  ↕ opencode   │  │
+                                                   │  └───────────────┘  │
+                                                   └─────────────────────┘
+```
+
+**Three components / 三大组件:**
+
+| Component | Role | Runs on |
+|-----------|------|---------|
+| **Bot Server** | Telegram bot + connector registry | Cloud (remote.petfish.ai or self-hosted) |
+| **Connector** | Maintains WebSocket to server, manages session bridges | Your dev machine |
+| **Session Bridge** | Injects prompts into a running opencode session, collects output | Per opencode process |
+
+## Quick Start 快速开始
+
+### 1. Get a token 获取 Token
+
+Send `/start` to [@petfish_bot](https://t.me/petfish_bot) on Telegram. You'll receive a one-time setup token.
+
+### 2. Install 安装
 
 ```bash
-# Install
-./scripts/install.sh
-
-# Configure
-cp .env.example .env
-# Edit .env with your Telegram bot token
-# Edit config/projects.yaml with your projects
-
-# Run
-npm run dev
+curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 ```
 
-## Architecture
+Done. Your connector is running. Send any message in Telegram to start controlling opencode.
 
+### 3. Use 使用
+
+| Action | How |
+|--------|-----|
+| Send instruction | Just type in Telegram (default = ask mode) |
+| Switch project | `/pf use <project-id>` |
+| Show menu | `/pf` (InlineKeyboard) |
+| New session | `/pf new` |
+| List projects | `/pf list` |
+
+## Features 特性
+
+- **Default Ask Mode** — Text messages go directly to opencode (no prefix needed)
+- **InlineKeyboard** — `/pf` shows a button menu for common actions
+- **Multi-Project** — One connector can bridge multiple project workspaces
+- **Auto-Update** — Connector checks server version on start, auto-upgrades if outdated
+- **Session Management** — Create fresh sessions, see output in real-time with typing indicators
+- **Secure** — Token-based auth, encrypted WebSocket, user allowlist
+- **AI Agent Integration** — Add to AGENTS.md for auto-start on every opencode session
+- **One-Liner Install** — `curl | bash` with dynamic server URL injection
+
+## Documentation 文档
+
+| | 中文 | English |
+|--|------|---------|
+| Client Guide | [客户端指南](./docs/zh/client-guide.md) | [Client Guide](./docs/en/client-guide.md) |
+| Server Guide | [服务器部署](./docs/zh/server-guide.md) | [Server Guide](./docs/en/server-guide.md) |
+| Web | [remote.petfish.ai](https://remote.petfish.ai) | [remote.petfish.ai](https://remote.petfish.ai) |
+
+## Self-Hosting 自部署
+
+Want to run your own bot server? See the [Server Deployment Guide](./docs/en/server-guide.md).
+
+Requirements: Node.js ≥ 20, systemd, nginx, domain + SSL, Telegram bot token.
+
+## Development 开发
+
+```bash
+git clone https://github.com/kylecui/petfish_remote.git
+cd petfish_remote
+npm install
+npm run dev        # Watch mode
+npm run build      # Compile
+npm run test       # 19 tests
+npm run typecheck  # Type check
 ```
-Telegram / Slack / Feishu
-    ↓ Webhook / Bot API
-PetFish Remote Bridge
-    ↓ Runtime Router
-Execution Runtime (local / wsl / ssh)
-    ↓
-opencode CLI / SDK
-    ↓
-Project Workspace
-```
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `/pf help` | Show help |
-| `/pf list` | List available projects |
-| `/pf use <project>` | Bind chat to a project |
-| `/pf where` | Show current binding |
-| `/pf ask <instruction>` | Create read-only analysis task |
-| `/pf edit <instruction>` | Create edit task (guarded) |
-| `/pf test [name]` | Run preset test command |
-| `/pf status` | Show current task status |
-| `/pf diff` | Show current task diff |
-| `/pf approve` | Approve pending operation |
-| `/pf deny` | Deny pending operation |
-| `/pf stop` | Stop current task |
-| `/pf log` | Show recent task log |
-
-## Execution Modes
-
-| Mode | Capabilities |
-|---|---|
-| `read_only` | Read files, search, analyze |
-| `suggest` | Propose changes without writing |
-| `edit_guarded` | Edit with approval on risky changes |
-| `execute_guarded` | Run whitelisted/approved commands |
-| `admin` | Full access (local only) |
-
-## Configuration
-
-- `config/projects.yaml` — Registered projects
-- `config/runtimes.yaml` — Execution environments
-- `config/policies.yaml` — Security policies
-- `config/users.yaml` — User roles and permissions
-- `config/adapters.yaml` — Chat platform settings
-- `config/runtime.yaml` — Runtime settings (storage, limits)
 
 ## Tech Stack
 
 - TypeScript / Node.js (ESM)
 - grammY (Telegram Bot)
-- better-sqlite3 (Storage)
-- YAML + Zod (Config)
-
-## Development
-
-```bash
-npm run dev        # Watch mode
-npm run build      # Compile
-npm run test       # Run tests
-npm run typecheck  # Type check
-```
+- WebSocket (ws)
+- YAML + Zod (Config validation)
 
 ## License
 
