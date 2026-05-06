@@ -13,6 +13,7 @@ import type {
 
 export interface OpenCodeBridgeConfig {
   opencodeBin?: string;
+  cwd?: string;
 }
 
 interface PendingPrompt {
@@ -51,7 +52,11 @@ export class OpenCodeBridge implements AgentBridge {
   private onQuestion: QuestionCallback | undefined;
   private onPermission: PermissionCallback | undefined;
 
-  public constructor(_config: OpenCodeBridgeConfig) {}
+  private readonly cwd: string | undefined;
+
+  public constructor(config: OpenCodeBridgeConfig) {
+    this.cwd = config.cwd;
+  }
 
   public setQuestionCallback(cb: QuestionCallback): void {
     this.onQuestion = cb;
@@ -716,27 +721,101 @@ export class OpenCodeBridge implements AgentBridge {
       } catch { /* fall through to scan */ }
     }
 
-    try {
-      const out = execSync(`ss -tlnp 2>/dev/null | grep opencode`, { encoding: 'utf-8' });
-      const portMatch = out.match(/:(\d+)\s/);
-      if (portMatch) return portMatch[1];
-    } catch { /* fall through */ }
-
-    try {
-      const psOut = execSync(`ps aux 2>/dev/null | grep "opencode.*--port" | grep -v grep`, { encoding: 'utf-8' });
-      const portMatch = psOut.match(/--port\s+(\d+)/);
-      if (portMatch) return portMatch[1];
-    } catch { /* fall through */ }
-
-    if (process.platform === 'win32') {
-      try {
-        const psOut = execSync('powershell -NoProfile -Command "Get-Process opencode -ErrorAction SilentlyContinue | ForEach-Object { (Get-CimInstance Win32_Process -Filter \\"ProcessId=$($_.Id)\\").CommandLine }"', { encoding: 'utf-8' });
-        const portMatch = psOut.match(/--port\s+(\d+)/);
-        if (portMatch) return portMatch[1];
-      } catch { /* fall through */ }
+    if (process.platform !== 'win32') {
+      const port = this.discoverPortLinux();
+      if (port) return port;
+    } else {
+      const port = this.discoverPortWindows();
+      if (port) return port;
     }
 
     return undefined;
+  }
+
+  /** Discover opencode port on Linux/macOS, filtering by process CWD when multiple instances exist. */
+  private discoverPortLinux(): string | undefined {
+    let psOut: string;
+    try {
+      psOut = execSync(`ps -eo pid,args 2>/dev/null | grep "opencode.*--port" | grep -v grep`, { encoding: 'utf-8' });
+    } catch {
+      return undefined;
+    }
+
+    const candidates: Array<{ pid: string; port: string }> = [];
+    for (const line of psOut.trim().split('\n')) {
+      const pidMatch = line.match(/^\s*(\d+)\s+/);
+      const portMatch = line.match(/--port\s+(\d+)/);
+      if (pidMatch && portMatch) {
+        candidates.push({ pid: pidMatch[1], port: portMatch[1] });
+      }
+    }
+
+    if (candidates.length === 0) return undefined;
+
+    if (this.cwd && candidates.length > 1) {
+      for (const c of candidates) {
+        try {
+          const procCwd = execSync(`readlink /proc/${c.pid}/cwd 2>/dev/null`, { encoding: 'utf-8' }).trim();
+          if (procCwd === this.cwd) {
+            console.log(`[OpenCodeBridge] matched opencode pid=${c.pid} port=${c.port} by cwd=${procCwd}`);
+            return c.port;
+          }
+        } catch { /* unreadable /proc entry */ }
+      }
+      // /proc doesn't exist on macOS — fall back to lsof
+      if (process.platform === 'darwin') {
+        for (const c of candidates) {
+          try {
+            const lsofOut = execSync(`lsof -p ${c.pid} -Fn 2>/dev/null | grep "^n.*cwd$" || lsof -p ${c.pid} -d cwd -Fn 2>/dev/null | grep "^n"`, { encoding: 'utf-8' });
+            const cwdLine = lsofOut.trim().replace(/^n/, '');
+            if (cwdLine === this.cwd) {
+              console.log(`[OpenCodeBridge] matched opencode pid=${c.pid} port=${c.port} by lsof cwd=${cwdLine}`);
+              return c.port;
+            }
+          } catch { /* skip */ }
+        }
+      }
+      console.warn(`[OpenCodeBridge] ${candidates.length} opencode instances found, none matched cwd=${this.cwd}; falling back to first`);
+    }
+
+    // Single candidate or no cwd — use first
+    return candidates[0].port;
+  }
+
+  /** Discover opencode port on Windows, filtering by command-line path when multiple instances exist. */
+  private discoverPortWindows(): string | undefined {
+    try {
+      const psOut = execSync(
+        'powershell -NoProfile -Command "Get-Process opencode -ErrorAction SilentlyContinue | ForEach-Object { $p = (Get-CimInstance Win32_Process -Filter \\"ProcessId=$($_.Id)\\"); \\"$($_.Id)|$($p.CommandLine)|$($p.ExecutablePath)\\" }"',
+        { encoding: 'utf-8' },
+      );
+
+      const candidates: Array<{ pid: string; port: string; cmdLine: string }> = [];
+      for (const line of psOut.trim().split('\n')) {
+        const portMatch = line.match(/--port\s+(\d+)/);
+        const pidMatch = line.match(/^(\d+)\|/);
+        if (pidMatch && portMatch) {
+          candidates.push({ pid: pidMatch[1], port: portMatch[1], cmdLine: line });
+        }
+      }
+
+      if (candidates.length === 0) return undefined;
+
+      if (this.cwd && candidates.length > 1) {
+        const normalizedCwd = this.cwd.replace(/\\/g, '/').toLowerCase();
+        for (const c of candidates) {
+          if (c.cmdLine.replace(/\\/g, '/').toLowerCase().includes(normalizedCwd)) {
+            console.log(`[OpenCodeBridge] matched opencode pid=${c.pid} port=${c.port} by cmdLine containing cwd`);
+            return c.port;
+          }
+        }
+        console.warn(`[OpenCodeBridge] ${candidates.length} opencode instances found on Windows, none matched cwd=${this.cwd}; falling back to first`);
+      }
+
+      return candidates[0].port;
+    } catch {
+      return undefined;
+    }
   }
 
   private discoverSession(): string | undefined {

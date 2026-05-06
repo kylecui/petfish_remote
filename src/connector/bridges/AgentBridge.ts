@@ -43,13 +43,13 @@ export async function createBridge(config: BridgeConfig): Promise<AgentBridge | 
   if (agent === 'opencode' || agent === 'auto') {
     if (process.env['OPENCODE_PID'] || agent === 'opencode') {
       const { OpenCodeBridge } = await import('./OpenCodeBridge.js');
-      const bridge = new OpenCodeBridge({});
+      const bridge = new OpenCodeBridge({ cwd });
       await bridge.init();
       return bridge;
     }
     try {
       const { OpenCodeBridge } = await import('./OpenCodeBridge.js');
-      const bridge = new OpenCodeBridge({});
+      const bridge = new OpenCodeBridge({ cwd });
       await bridge.init();
       return bridge;
     } catch { /* no opencode found in auto mode, continue */ }
