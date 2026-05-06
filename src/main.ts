@@ -197,6 +197,13 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
 
   if (telegramAdapter) {
     void telegramAdapter.sendTyping(event.chat_id);
+    void telegramAdapter.sendMessage({
+      platform: 'telegram',
+      chat_id: event.chat_id,
+      reply_to: event.message_id,
+      message_type: 'markdown',
+      text: `📂 *${projectId}* · Task \`${task.task_id}\` accepted`,
+    });
   }
 
   const batcher = new OutputBatcher(
