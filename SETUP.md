@@ -15,18 +15,22 @@
 
 ## Step 1: 安装 Connector
 
-petfish_remote 仓库提供 connector 的可执行代码。确保本机已有最新构建：
+petfish_remote 仓库提供 connector 的可执行代码。推荐安装到 `~/.petfish/remote/`：
 
 ```bash
-# 如果 /home/kylecui/dev/petfish_remote 已存在且已构建，跳过此步
-cd /home/kylecui/dev/petfish_remote && git pull && npm install && npm run build
-```
+# 设置安装路径（推荐 ~/.petfish/remote/）
+export PETFISH_REMOTE_DIR="${PETFISH_REMOTE_DIR:-$HOME/.petfish/remote}"
 
-如果该目录不存在：
+# 如果已存在，更新
+if [ -d "$PETFISH_REMOTE_DIR" ]; then
+  cd "$PETFISH_REMOTE_DIR" && git pull && npm install && npm run build
+else
+  git clone https://github.com/kylecui/petfish_remote.git "$PETFISH_REMOTE_DIR"
+  cd "$PETFISH_REMOTE_DIR" && npm install && npm run build
+fi
 
-```bash
-git clone https://github.com/kylecui/petfish_remote.git /home/kylecui/dev/petfish_remote
-cd /home/kylecui/dev/petfish_remote && npm install && npm run build
+# 建议在 ~/.bashrc 或 ~/.zshrc 中添加：
+echo 'export PETFISH_REMOTE_DIR="$HOME/.petfish/remote"' >> ~/.bashrc
 ```
 
 ## Step 2: 获取注册 Token
@@ -53,7 +57,7 @@ Token valid for 5 minutes.
 - 生成 `connector.yaml` 配置文件
 
 ```bash
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh setup \
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" setup \
   --token <从Telegram获取的token> \
   --project-id <项目短名> \
   --project-path $(pwd)
@@ -94,7 +98,7 @@ echo "connector.yaml" >> .gitignore
 
 ```bash
 OPENCODE_PID=$(pgrep -x "opencode" | head -1) \
-  /home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh start ./connector.yaml
+  "$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" start ./connector.yaml
 ```
 
 **⚠️ 重要：必须使用 `petfish-connect.sh start` 命令。不要直接 `node dist/connector/main.js` — 那样会在 opencode bash 工具超时后被杀掉。**
@@ -121,10 +125,10 @@ ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 5 | grep -i r
 其它管理命令：
 
 ```bash
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh status ./connector.yaml
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh stop ./connector.yaml
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh restart ./connector.yaml
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh logs ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" status ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" stop ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" restart ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" logs ./connector.yaml
 ```
 
 ## Step 5: 写入自启动指令到 AGENTS.md
@@ -143,17 +147,18 @@ cat >> AGENTS.md << 'EOF'
 在每次 session 开始时（收到用户第一条消息前），执行：
 
 ```bash
+export PETFISH_REMOTE_DIR="${PETFISH_REMOTE_DIR:-$HOME/.petfish/remote}"
 if ! pgrep -f "dist/connector/main.js.*connector.yaml" > /dev/null 2>&1; then
   OPENCODE_PID=$(pgrep -x "opencode" | head -1) \
-    /home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh start ./connector.yaml
+    "$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" start ./connector.yaml
 fi
 ```
 
 ### 管理命令
 
 ```bash
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh status ./connector.yaml
-/home/kylecui/dev/petfish_remote/scripts/petfish-connect.sh logs ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" status ./connector.yaml
+"$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" logs ./connector.yaml
 ```
 
 ### 用户使用方式
@@ -203,5 +208,6 @@ EOF
 | 配置目录 | /opt/petfish-remote/config/ |
 | WebSocket | wss://remote.petfish.ai/ws/connector |
 | Bot | @petfish_bot |
-| Connector Token (alpha) | e80Mft2NAjly5hQSSo9C1juSfjH9x_mVCcSI2VmFgKE |
+| 安装路径 (推荐) | ~/.petfish/remote/ |
+| 环境变量 | PETFISH_REMOTE_DIR |
 | 用户 Telegram ID | 685608515 |

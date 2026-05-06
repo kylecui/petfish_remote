@@ -1,7 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 
 import { WebSocketServer, type WebSocket } from 'ws';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkgPath = resolve(__dirname, '../../package.json');
+const SERVER_VERSION = JSON.parse(readFileSync(pkgPath, 'utf-8')).version as string;
 
 import {
   type Envelope,
@@ -49,8 +56,14 @@ export class ConnectorGateway extends EventEmitter {
       return;
     }
 
+    if (req.url === '/api/version') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ version: SERVER_VERSION }));
+      return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ service: 'petfish-remote-ws', connectors: this.registry.list().length }));
+    res.end(JSON.stringify({ service: 'petfish-remote-ws', version: SERVER_VERSION, connectors: this.registry.list().length }));
   }
 
   private handleRegisterApi(req: IncomingMessage, res: ServerResponse): void {
@@ -207,7 +220,7 @@ export class ConnectorGateway extends EventEmitter {
 
         const ack = createEnvelope(MSG.REGISTERED, {
           connectorId: payload.connectorId,
-          serverVersion: '0.1.0',
+          serverVersion: SERVER_VERSION,
         });
         ws.send(JSON.stringify(ack));
 

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PETFISH_REMOTE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PETFISH_REMOTE_DIR="${PETFISH_REMOTE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 CONNECTOR_JS="$PETFISH_REMOTE_DIR/dist/connector/main.js"
 
 PID_DIR="/tmp"
@@ -54,6 +54,40 @@ is_running() {
   fi
 }
 
+check_version() {
+  local server_url="${1:-https://remote.petfish.ai}"
+  local local_version=""
+  local remote_version=""
+
+  if [ -f "$PETFISH_REMOTE_DIR/package.json" ]; then
+    local_version="$(grep -o '"version": *"[^"]*"' "$PETFISH_REMOTE_DIR/package.json" | cut -d'"' -f4)"
+  fi
+
+  if [ -z "$local_version" ]; then
+    return 0
+  fi
+
+  remote_version="$(curl -s --max-time 5 "${server_url}/api/version" 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || true)"
+
+  if [ -z "$remote_version" ]; then
+    return 0
+  fi
+
+  if [ "$local_version" = "$remote_version" ]; then
+    return 0
+  fi
+
+  echo "   ⚠️  Version mismatch: local=$local_version server=$remote_version"
+  echo "   Updating..."
+  (cd "$PETFISH_REMOTE_DIR" && git pull --quiet && npm install --quiet && npm run build --quiet) 2>&1 | sed 's/^/   /'
+
+  if [ $? -eq 0 ]; then
+    echo "   ✅ Updated to $remote_version"
+  else
+    echo "   ⚠️  Update failed — continuing with local version"
+  fi
+}
+
 do_start() {
   local config_path="${1:-$(pwd)/connector.yaml}"
 
@@ -63,6 +97,10 @@ do_start() {
     echo "Create one first. See SETUP.md in petfish_remote repo."
     exit 1
   fi
+
+  local server_url
+  server_url="$(grep -o 'serverUrl: *"[^"]*"' "$config_path" | cut -d'"' -f2 | sed 's|wss://|https://|; s|/ws/connector||' || echo "https://remote.petfish.ai")"
+  check_version "$server_url"
 
   if [ ! -f "$CONNECTOR_JS" ]; then
     echo "ERROR: Connector not built. Run:"
