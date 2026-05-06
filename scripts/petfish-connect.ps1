@@ -120,35 +120,27 @@ function Invoke-Start {
     $env:OPENCODE_PID = $opencodePid
 
     # Start connector as a fully detached background process.
-    # Use cmd /c start to ensure child doesn't inherit parent pipe handles
-    # (prevents opencode from seeing the command as "still running").
-    $argString = "`"$ConnectorJs`" `"$Config`""
-    $proc = Start-Process -FilePath $nodeExe `
-        -ArgumentList $argString `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $logFile `
-        -RedirectStandardError "$logFile.err" `
-        -PassThru
-
-    # Immediately release any reference to child's process handles
-    $proc.Id | Out-File -FilePath $pidFile -Encoding ascii -NoNewline
-    $procId = $proc.Id
-    $proc.Close()  # Release .NET handle to avoid holding child alive
+    # CRITICAL: Do NOT use -RedirectStandardOutput/-RedirectStandardError here.
+    # Those params force UseShellExecute=false, which keeps the child in the
+    # parent's process group — opencode then waits for the entire tree to exit.
+    # Instead, wrap in cmd /c for file redirection while using ShellExecute=true
+    # (fully detached, no handle inheritance, no process-tree tracking).
+    $cmdArgs = "/c `"`"$nodeExe`" `"$ConnectorJs`" `"$Config`" > `"$logFile`" 2> `"$logFile.err`"`""
+    Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden
 
     Start-Sleep -Seconds 2
 
-    # Check if process is still alive (re-acquire handle briefly)
-    $stillRunning = $false
-    try {
-        $check = Get-Process -Id $procId -ErrorAction Stop
-        $stillRunning = -not $check.HasExited
-    } catch { $stillRunning = $false }
+    # Find the node.exe process by matching our connector script in its command line
+    $nodeProc = Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%connector/main.js%' OR CommandLine LIKE '%connector\\main.js%'" |
+        Sort-Object CreationDate -Descending | Select-Object -First 1
 
-    if (-not $stillRunning) {
-        Write-Error "Connector process died immediately. Check log: $logFile"
-        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    if (-not $nodeProc) {
+        Write-Error "Connector process not found after start. Check log: $logFile"
         return
     }
+
+    $procId = $nodeProc.ProcessId
+    $procId | Out-File -FilePath $pidFile -Encoding ascii -NoNewline
 
     $logContent = if (Test-Path $logFile) { Get-Content $logFile -Raw } else { '' }
     if ($logContent -match 'Registration accepted') {
