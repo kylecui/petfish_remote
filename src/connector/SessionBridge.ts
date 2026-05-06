@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import http from 'node:http';
 
@@ -34,6 +33,7 @@ export class SessionBridge {
   private idleDrainTimer: NodeJS.Timeout | undefined;
   private readonly idleConfirmMs = 1500;
   private lastCompletedAssistantId: string | undefined;
+  private pendingCorrelation: string | undefined;
   private stopped = false;
 
   public constructor(_config: SessionBridgeConfig) {}
@@ -119,10 +119,9 @@ export class SessionBridge {
 
   private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): void {
 
-    const userMessageId = `msg_pf_${randomBytes(12).toString('hex')}`;
     const entry: PendingPrompt = {
       taskId,
-      userMessageId,
+      userMessageId: '',
       assistantMessageId: undefined,
       onOutput,
       onComplete,
@@ -134,40 +133,40 @@ export class SessionBridge {
     };
 
     this.pending.set(taskId, entry);
-    this.messageToTask.set(userMessageId, taskId);
+    this.pendingCorrelation = taskId;
 
-    const body = JSON.stringify({
-      messageID: userMessageId,
-      parentID: this.lastCompletedAssistantId,
-      parts: [{ type: 'text', text: instruction }],
-    });
+    const port = Number(this.opencodePort);
+    const clearBody = JSON.stringify({});
+    const appendBody = JSON.stringify({ text: instruction });
+    const submitBody = JSON.stringify({});
 
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: Number(this.opencodePort),
-        path: `/session/${this.sessionId}/prompt_async`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      },
-      (res) => {
-        console.log(`[SessionBridge] prompt_async response: ${res.statusCode} taskId=${taskId} msgId=${userMessageId}`);
-        if (res.statusCode !== 204) {
-          let data = '';
-          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-          res.on('end', () => {
-            this.settle(taskId, `prompt_async failed: ${res.statusCode} ${data}`);
-          });
+    const doPost = (path: string, body: string): Promise<number> => {
+      return new Promise((resolve, reject) => {
+        const req = http.request(
+          { hostname: '127.0.0.1', port, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+          (res) => { res.resume(); resolve(res.statusCode ?? 0); },
+        );
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
+    };
+
+    (async () => {
+      try {
+        await doPost('/tui/clear-prompt', clearBody);
+        await doPost('/tui/append-prompt', appendBody);
+        const status = await doPost('/tui/submit-prompt', submitBody);
+        console.log(`[SessionBridge] TUI submit response: ${status} taskId=${taskId}`);
+        if (status !== 204 && status !== 200) {
+          this.pendingCorrelation = undefined;
+          this.settle(taskId, `TUI submit failed: ${status}`);
         }
-      },
-    );
-
-    req.on('error', (err) => {
-      this.settle(taskId, `prompt_async request error: ${err.message}`);
-    });
-
-    req.write(body);
-    req.end();
+      } catch (err) {
+        this.pendingCorrelation = undefined;
+        this.settle(taskId, `TUI submit error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
   }
 
   public cancel(taskId: string): void {
@@ -280,6 +279,17 @@ export class SessionBridge {
     if (!info) return;
 
     console.log(`[SSE] message.updated role=${info.role} id=${info.id} parentID=${info.parentID} completed=${!!info.time?.completed}`);
+
+    if (info.role === 'user' && info.id && this.pendingCorrelation) {
+      const taskId = this.pendingCorrelation;
+      this.pendingCorrelation = undefined;
+      const entry = this.pending.get(taskId);
+      if (entry) {
+        entry.userMessageId = info.id;
+        this.messageToTask.set(info.id, taskId);
+        console.log(`[SSE] correlated user msg ${info.id} → taskId=${taskId}`);
+      }
+    }
 
     if (info.role === 'assistant' && info.id && info.time?.completed) {
       this.lastCompletedAssistantId = info.id;
