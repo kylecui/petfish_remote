@@ -150,6 +150,13 @@ export class Storage {
     return row;
   }
 
+  public getChatIdByProject(projectId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT chat_id FROM sessions WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1')
+      .get(projectId) as { chat_id: string } | undefined;
+    return row?.chat_id;
+  }
+
   public createTask(task: TaskRecord): void {
     const stmt = this.db.prepare(`
       INSERT INTO tasks (

@@ -59,6 +59,25 @@ const connectorIdToChatId = new Map<string, string>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 
+function resolveChatId(taskId: string, connectorId: string): string | undefined {
+  const fromTask = taskIdToChatId.get(taskId);
+  if (fromTask) return fromTask;
+
+  const fromConnector = connectorIdToChatId.get(connectorId);
+  if (fromConnector) return fromConnector;
+
+  if (!gateway) return undefined;
+  const connInfo = gateway.registry.get(connectorId);
+  if (connInfo) {
+    for (const proj of connInfo.projects) {
+      const chatId = storage.getChatIdByProject(proj.id);
+      if (chatId) return chatId;
+    }
+  }
+
+  return undefined;
+}
+
 if (config.gateway.enabled) {
   const auth = new ConnectorAuth(config.connector_tokens);
 
@@ -159,7 +178,7 @@ if (config.gateway.enabled) {
   gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
     if (!telegramAdapter) return;
     questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
-    const chatId = taskIdToChatId.get(payload.taskId) ?? connectorIdToChatId.get(connectorId);
+    const chatId = resolveChatId(payload.taskId, connectorId);
     if (!chatId) {
       console.warn(`[question] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
@@ -171,7 +190,7 @@ if (config.gateway.enabled) {
   gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
     if (!telegramAdapter) return;
     permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
-    const chatId = taskIdToChatId.get(payload.taskId) ?? connectorIdToChatId.get(connectorId);
+    const chatId = resolveChatId(payload.taskId, connectorId);
     if (!chatId) {
       console.warn(`[permission] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
