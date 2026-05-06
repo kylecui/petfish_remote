@@ -33,7 +33,7 @@ export class SessionBridge {
   private idleDrainTimer: NodeJS.Timeout | undefined;
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private readonly idleConfirmMs = 1500;
-  private readonly settleGraceMs = 2000;
+  private readonly settleGraceMs = 300_000;
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
@@ -367,7 +367,6 @@ export class SessionBridge {
     const info = props['info'] as { id?: string; role?: string; parentID?: string; time?: { completed?: number } } | undefined;
     if (!info) return;
 
-    // Correlate first user message after TUI submit to the pending task
     if (info.role === 'user' && info.id && this.pendingCorrelation) {
       const taskId = this.pendingCorrelation;
       this.pendingCorrelation = undefined;
@@ -383,9 +382,16 @@ export class SessionBridge {
       this.lastCompletedAssistantId = info.id;
     }
 
-    // Track assistant messages that belong to our injected user message
     if (info.role === 'assistant' && info.parentID) {
-      const taskId = this.messageToTask.get(info.parentID);
+      let taskId = this.messageToTask.get(info.parentID);
+
+      if (!taskId && this.pending.size === 1) {
+        const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
+        if (!onlyEntry.settled) {
+          taskId = onlyTaskId;
+        }
+      }
+
       if (taskId) {
         const entry = this.pending.get(taskId);
         if (entry) {
@@ -411,13 +417,23 @@ export class SessionBridge {
 
     if (part.type !== 'text') return;
 
-    const taskId = part.messageID ? this.messageToTask.get(part.messageID) : undefined;
+    let taskId = part.messageID ? this.messageToTask.get(part.messageID) : undefined;
+
+    if (!taskId && this.pending.size === 1) {
+      const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
+      if (!onlyEntry.settled && part.messageID !== onlyEntry.userMessageId) {
+        taskId = onlyTaskId;
+        if (part.messageID) {
+          this.messageToTask.set(part.messageID, taskId);
+        }
+      }
+    }
+
     if (!taskId) return;
 
     const entry = this.pending.get(taskId);
     if (!entry || entry.settled) return;
 
-    // Skip user message text — only relay assistant responses
     if (part.messageID === entry.userMessageId) return;
 
     const msgId = part.messageID!;
@@ -460,6 +476,9 @@ export class SessionBridge {
     const status = props['status'] as { type?: string } | undefined;
     if (status?.type === 'busy') {
       this.cancelIdleDrain();
+      for (const taskId of this.settleTimers.keys()) {
+        this.cancelSettleTimer(taskId);
+      }
     }
   }
 
@@ -471,7 +490,13 @@ export class SessionBridge {
       this.settleTimers.delete(taskId);
       const entry = this.pending.get(taskId);
       if (!entry || entry.settled) return;
-      console.log(`[SessionBridge] settling task=${taskId} (assistant completed, grace expired)`);
+
+      if (this.isSessionBusy()) {
+        console.log(`[SessionBridge] safety settle deferred — session still busy task=${taskId}`);
+        return;
+      }
+
+      console.log(`[SessionBridge] safety settle firing task=${taskId} (${this.settleGraceMs / 1000}s timeout)`);
       entry.settled = true;
       this.cleanup(taskId);
       entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
