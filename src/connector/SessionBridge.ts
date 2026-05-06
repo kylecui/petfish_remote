@@ -1,38 +1,41 @@
-import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { execSync } from 'node:child_process';
+import http from 'node:http';
 
 export interface SessionBridgeConfig {
   opencodeBin?: string;
-  pollIntervalMs?: number;
-  maxQueueWaitMs?: number;
 }
 
 export type OutputCallback = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void;
 export type CompleteCallback = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => void;
 export type FailCallback = (taskId: string, error: string) => void;
 
-interface QueuedTask {
+interface PendingPrompt {
   taskId: string;
-  instruction: string;
+  userMessageId: string;
+  assistantMessageId: string | undefined;
   onOutput: OutputCallback;
   onComplete: CompleteCallback;
   onFail: FailCallback;
-  queuedAt: number;
+  startedAt: string;
+  stdout: string;
+  sentTextLength: number;
+  settled: boolean;
 }
 
 export class SessionBridge {
   private sessionId: string | undefined;
   private opencodePort: string | undefined;
   private readonly opencodeBin: string;
-  private readonly pollIntervalMs: number;
-  private readonly maxQueueWaitMs: number;
-  private readonly running = new Map<string, ChildProcess>();
-  private readonly queue: QueuedTask[] = [];
-  private pollTimer: NodeJS.Timeout | undefined;
+  private readonly pending = new Map<string, PendingPrompt>();
+  private readonly messageToTask = new Map<string, string>();
+  private readonly localQueue: Array<{ taskId: string; instruction: string; onOutput: OutputCallback; onComplete: CompleteCallback; onFail: FailCallback }> = [];
+  private sseRequest: http.ClientRequest | undefined;
+  private sseReconnectTimer: NodeJS.Timeout | undefined;
+  private stopped = false;
 
   public constructor(config: SessionBridgeConfig) {
     this.opencodeBin = config.opencodeBin ?? process.env['OPENCODE_BIN'] ?? 'opencode';
-    this.pollIntervalMs = config.pollIntervalMs ?? 5_000;
-    this.maxQueueWaitMs = config.maxQueueWaitMs ?? 300_000;
   }
 
   public async init(): Promise<void> {
@@ -41,169 +44,290 @@ export class SessionBridge {
     if (!this.sessionId) {
       throw new Error('Cannot discover active session. Is OPENCODE_SESSION_ID set?');
     }
-    console.log(`SessionBridge: session=${this.sessionId} port=${this.opencodePort ?? 'none'} bin=${this.opencodeBin}`);
+    if (!this.opencodePort) {
+      throw new Error('Cannot discover opencode port. Is OPENCODE_PID set?');
+    }
+    this.connectSSE();
+    console.log(`SessionBridge: session=${this.sessionId} port=${this.opencodePort} bin=${this.opencodeBin}`);
   }
 
   public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): boolean {
-    if (!this.sessionId) {
+    if (!this.sessionId || !this.opencodePort) {
       onFail(taskId, 'SessionBridge not initialized');
       return false;
     }
 
-    const status = this.getSessionStatus();
-
-    if (status === 'busy' || this.running.size > 0) {
-      this.queue.push({ taskId, instruction, onOutput, onComplete, onFail, queuedAt: Date.now() });
-      onOutput(taskId, 'stdout', '⏳ Agent is currently working on a task. Your request is queued and will be processed once it becomes idle.\n');
-      console.log(`[SessionBridge] Task ${taskId} queued (session busy, queue size: ${this.queue.length})`);
-      this.ensurePolling();
+    if (this.isSessionBusy()) {
+      console.log(`[SessionBridge] Session busy, queuing task ${taskId}`);
+      this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
+      onOutput(taskId, 'stdout', '⏳ opencode is currently busy. Your request is queued and will be processed when idle.\n');
       return true;
     }
 
-    this.spawnRun(taskId, instruction, onOutput, onComplete, onFail);
+    this.injectPrompt(taskId, instruction, onOutput, onComplete, onFail);
     return true;
   }
 
-  public cancel(taskId: string): void {
-    const child = this.running.get(taskId);
-    if (child) {
-      child.kill('SIGTERM');
-      this.running.delete(taskId);
-      return;
+  private isSessionBusy(): boolean {
+    if (this.pending.size > 0) return true;
+    try {
+      const raw = execSync(
+        `curl -s http://127.0.0.1:${this.opencodePort}/session/status`,
+        { encoding: 'utf-8', timeout: 3000 },
+      );
+      const statuses = JSON.parse(raw) as Record<string, { type: string }>;
+      const status = statuses[this.sessionId!];
+      return status?.type === 'busy';
+    } catch {
+      return false;
     }
-    const idx = this.queue.findIndex((t) => t.taskId === taskId);
-    if (idx !== -1) {
-      const removed = this.queue.splice(idx, 1)[0];
-      removed.onComplete(taskId, -1, '', 'Cancelled while queued', removed.queuedAt.toString(), new Date().toISOString());
+  }
+
+  private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): void {
+
+    const userMessageId = `msg_pf_${randomBytes(12).toString('hex')}`;
+    const entry: PendingPrompt = {
+      taskId,
+      userMessageId,
+      assistantMessageId: undefined,
+      onOutput,
+      onComplete,
+      onFail,
+      startedAt: new Date().toISOString(),
+      stdout: '',
+      sentTextLength: 0,
+      settled: false,
+    };
+
+    this.pending.set(taskId, entry);
+    this.messageToTask.set(userMessageId, taskId);
+
+    const body = JSON.stringify({
+      messageID: userMessageId,
+      parts: [{ type: 'text', text: instruction }],
+    });
+
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: Number(this.opencodePort),
+        path: `/session/${this.sessionId}/prompt_async`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        console.log(`[SessionBridge] prompt_async response: ${res.statusCode} taskId=${taskId} msgId=${userMessageId}`);
+        if (res.statusCode !== 204) {
+          let data = '';
+          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+          res.on('end', () => {
+            this.settle(taskId, `prompt_async failed: ${res.statusCode} ${data}`);
+          });
+        }
+      },
+    );
+
+    req.on('error', (err) => {
+      this.settle(taskId, `prompt_async request error: ${err.message}`);
+    });
+
+    req.write(body);
+    req.end();
+  }
+
+  public cancel(taskId: string): void {
+    const entry = this.pending.get(taskId);
+    if (entry && !entry.settled) {
+      entry.settled = true;
+      this.cleanup(taskId);
+      entry.onComplete(taskId, -1, entry.stdout, 'Cancelled', entry.startedAt, new Date().toISOString());
     }
   }
 
   public stop(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = undefined;
+    this.stopped = true;
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+      this.sseReconnectTimer = undefined;
     }
-    for (const [, child] of this.running) {
-      child.kill('SIGTERM');
+    if (this.sseRequest) {
+      this.sseRequest.destroy();
+      this.sseRequest = undefined;
     }
-    this.running.clear();
-    this.queue.length = 0;
+    for (const [taskId, entry] of this.pending) {
+      if (!entry.settled) {
+        entry.onComplete(taskId, -1, entry.stdout, 'Bridge stopped', entry.startedAt, new Date().toISOString());
+      }
+    }
+    this.pending.clear();
+    this.messageToTask.clear();
   }
 
-  private spawnRun(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): void {
-    const startedAt = new Date().toISOString();
-    const args = ['run', '-s', this.sessionId!, '--format', 'json', instruction];
+  private connectSSE(): void {
+    if (this.stopped) return;
 
-    console.log(`[SessionBridge] Spawning: ${this.opencodeBin} ${args.slice(0, 4).join(' ')} "<instruction>"`);
+    const req = http.get(
+      { hostname: '127.0.0.1', port: Number(this.opencodePort), path: '/event', headers: { Accept: 'text/event-stream' } },
+      (res) => {
+        if (res.statusCode !== 200) {
+          console.warn(`[SessionBridge] SSE connection failed: ${res.statusCode}`);
+          this.scheduleSSEReconnect();
+          return;
+        }
 
-    const child = spawn(this.opencodeBin, args, {
-      cwd: process.cwd(),
-      shell: false,
-      env: { ...process.env },
+        let buffer = '';
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              this.handleSSEEvent(line.slice(6));
+            }
+          }
+        });
+
+        res.on('end', () => {
+          console.log('[SessionBridge] SSE connection ended');
+          this.scheduleSSEReconnect();
+        });
+
+        res.on('error', (err) => {
+          console.warn(`[SessionBridge] SSE stream error: ${err.message}`);
+          this.scheduleSSEReconnect();
+        });
+      },
+    );
+
+    req.on('error', (err) => {
+      console.warn(`[SessionBridge] SSE connect error: ${err.message}`);
+      this.scheduleSSEReconnect();
     });
 
-    this.running.set(taskId, child);
-    let stdout = '';
-    let textBuffer = '';
+    this.sseRequest = req;
+  }
 
-    child.stdout.on('data', (data: Buffer) => {
-      const raw = data.toString();
-      stdout += raw;
+  private scheduleSSEReconnect(): void {
+    if (this.stopped) return;
+    this.sseReconnectTimer = setTimeout(() => {
+      this.connectSSE();
+    }, 3000);
+  }
 
-      const lines = (textBuffer + raw).split('\n');
-      textBuffer = lines.pop() ?? '';
+  private handleSSEEvent(data: string): void {
+    let event: { type: string; properties?: Record<string, unknown> };
+    try {
+      event = JSON.parse(data);
+    } catch {
+      return;
+    }
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const event = JSON.parse(line) as { type: string; part?: { text?: string } };
-          if (event.type === 'text' && event.part?.text) {
-            onOutput(taskId, 'stdout', event.part.text);
+    const interested = ['message.updated', 'message.part.updated', 'session.idle', 'session.status'];
+    if (interested.includes(event.type)) {
+      console.log(`[SSE] ${event.type} pending=${this.pending.size} msgMap=${this.messageToTask.size}`);
+    }
+
+    if (event.type === 'message.updated') {
+      this.handleMessageUpdated(event.properties);
+    } else if (event.type === 'message.part.updated') {
+      this.handlePartUpdated(event.properties);
+    } else if (event.type === 'session.idle') {
+      this.handleSessionIdle(event.properties);
+    }
+  }
+
+  private handleMessageUpdated(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const info = props['info'] as { id?: string; role?: string; parentID?: string; time?: { completed?: number } } | undefined;
+    if (!info) return;
+
+    console.log(`[SSE] message.updated role=${info.role} id=${info.id} parentID=${info.parentID} completed=${!!info.time?.completed}`);
+
+    if (info.role === 'assistant' && info.parentID) {
+      const taskId = this.messageToTask.get(info.parentID);
+      console.log(`[SSE] assistant parentID=${info.parentID} → taskId=${taskId ?? 'NONE'} (known keys: ${[...this.messageToTask.keys()].join(', ')})`);
+      if (taskId) {
+        const entry = this.pending.get(taskId);
+        if (entry) {
+          entry.assistantMessageId = info.id;
+          if (info.id) {
+            this.messageToTask.set(info.id, taskId);
           }
-        } catch {
         }
       }
-    });
-
-    child.stderr.on('data', (data: Buffer) => {
-      onOutput(taskId, 'stderr', data.toString());
-    });
-
-    child.on('error', (err) => {
-      this.running.delete(taskId);
-      onFail(taskId, err.message);
-      this.drainQueue();
-    });
-
-    child.on('close', (code) => {
-      this.running.delete(taskId);
-      onComplete(taskId, code ?? 1, stdout, '', startedAt, new Date().toISOString());
-      this.drainQueue();
-    });
+    }
   }
 
-  private ensurePolling(): void {
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => {
-      this.checkAndDrain();
-    }, this.pollIntervalMs);
-  }
+  private handlePartUpdated(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const part = props['part'] as { type?: string; messageID?: string; text?: string; id?: string } | undefined;
+    const delta = props['delta'] as string | undefined;
+    if (!part) return;
 
-  private checkAndDrain(): void {
-    if (this.queue.length === 0) {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = undefined;
-      }
+    console.log(`[SSE] part type=${part.type} msgId=${part.messageID} delta=${delta?.length ?? 'undef'} textLen=${part.text?.length ?? 0} pending=${this.pending.size}`);
+
+    if (part.type !== 'text') return;
+
+    const taskId = part.messageID ? this.messageToTask.get(part.messageID) : undefined;
+    if (!taskId) return;
+
+    const entry = this.pending.get(taskId);
+    if (!entry || entry.settled) return;
+
+    // Skip user message text — only relay assistant responses
+    if (part.messageID === entry.userMessageId) return;
+
+    let text: string;
+    if (delta && delta.length > 0) {
+      text = delta;
+    } else if (part.text && part.text.length > entry.sentTextLength) {
+      text = part.text.slice(entry.sentTextLength);
+    } else {
       return;
     }
 
-    const now = Date.now();
-    while (this.queue.length > 0 && now - this.queue[0].queuedAt > this.maxQueueWaitMs) {
-      const expired = this.queue.shift()!;
-      expired.onOutput(expired.taskId, 'stdout', '⚠️ Request timed out after waiting too long for agent to become idle.\n');
-      expired.onComplete(expired.taskId, -1, '', 'Queue timeout', expired.queuedAt.toString(), new Date().toISOString());
-    }
+    entry.sentTextLength += text.length;
+    entry.stdout += text;
+    entry.onOutput(taskId, 'stdout', text);
+  }
 
-    if (this.queue.length === 0) {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = undefined;
+  private handleSessionIdle(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const sessionID = props['sessionID'] as string | undefined;
+    if (sessionID !== this.sessionId) return;
+
+    for (const [taskId, entry] of this.pending) {
+      if (!entry.settled) {
+        entry.settled = true;
+        this.cleanup(taskId);
+        entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
       }
-      return;
     }
 
-    if (this.running.size > 0) return;
-    const status = this.getSessionStatus();
-    if (status === 'idle') {
-      this.drainQueue();
+    // Drain local queue: inject the next queued task now that session is idle
+    if (this.localQueue.length > 0) {
+      const next = this.localQueue.shift()!;
+      console.log(`[SessionBridge] Draining queue: taskId=${next.taskId} (${this.localQueue.length} remaining)`);
+      this.injectPrompt(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail);
     }
   }
 
-  private drainQueue(): void {
-    if (this.queue.length === 0) return;
-    if (this.running.size > 0) return;
-
-    const next = this.queue.shift()!;
-    console.log(`[SessionBridge] Dequeuing task ${next.taskId} (remaining: ${this.queue.length})`);
-    next.onOutput(next.taskId, 'stdout', '▶️ Agent is now idle. Processing your request...\n');
-    this.spawnRun(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail);
+  private settle(taskId: string, error: string): void {
+    const entry = this.pending.get(taskId);
+    if (!entry || entry.settled) return;
+    entry.settled = true;
+    this.cleanup(taskId);
+    entry.onFail(taskId, error);
   }
 
-  private getSessionStatus(): 'idle' | 'busy' | 'unknown' {
-    if (!this.opencodePort) return 'unknown';
-    try {
-      const raw = execSync(`curl -s http://127.0.0.1:${this.opencodePort}/session/status`, {
-        encoding: 'utf-8',
-        timeout: 3000,
-      });
-      const statuses = JSON.parse(raw) as Record<string, { type: string }>;
-      const entry = statuses[this.sessionId!];
-      if (entry?.type === 'idle') return 'idle';
-      if (entry?.type === 'busy') return 'busy';
-      return 'unknown';
-    } catch {
-      return 'unknown';
+  private cleanup(taskId: string): void {
+    const entry = this.pending.get(taskId);
+    if (entry) {
+      this.messageToTask.delete(entry.userMessageId);
+      if (entry.assistantMessageId) {
+        this.messageToTask.delete(entry.assistantMessageId);
+      }
+      this.pending.delete(taskId);
     }
   }
 
