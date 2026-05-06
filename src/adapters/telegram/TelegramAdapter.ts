@@ -80,6 +80,12 @@ export class TelegramAdapter {
         .row()
         .text('🔄 New', 'pf:new')
         .text('🛑 Stop', 'pf:stop')
+        .row()
+        .text('📝 Diff', 'pf:diff')
+        .text('✅ Commit', 'pf:commit')
+        .text('🚀 PR', 'pf:pr')
+        .row()
+        .text('🧪 Test', 'pf:test')
         .text('❓ Help', 'pf:help');
 
       const boundText = binding
@@ -157,6 +163,30 @@ export class TelegramAdapter {
       if (event) await this.onEvent(event);
     });
 
+    this.bot.callbackQuery('pf:diff', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf diff');
+      if (event) await this.onEvent(event);
+    });
+
+    this.bot.callbackQuery('pf:commit', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf commit');
+      if (event) await this.onEvent(event);
+    });
+
+    this.bot.callbackQuery('pf:pr', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf pr');
+      if (event) await this.onEvent(event);
+    });
+
+    this.bot.callbackQuery('pf:test', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf test');
+      if (event) await this.onEvent(event);
+    });
+
     this.bot.callbackQuery('pf:back', async (ctx) => {
       await ctx.answerCallbackQuery();
       const binding = this.deps?.getBinding(String(ctx.chatId));
@@ -166,6 +196,12 @@ export class TelegramAdapter {
         .row()
         .text('🔄 New', 'pf:new')
         .text('🛑 Stop', 'pf:stop')
+        .row()
+        .text('📝 Diff', 'pf:diff')
+        .text('✅ Commit', 'pf:commit')
+        .text('🚀 PR', 'pf:pr')
+        .row()
+        .text('🧪 Test', 'pf:test')
         .text('❓ Help', 'pf:help');
 
       const boundText = binding

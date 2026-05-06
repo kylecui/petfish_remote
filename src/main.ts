@@ -21,7 +21,7 @@ import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
-import type { ChatEvent, ChatResponse } from './types.js';
+import type { ChatEvent, ChatResponse, ExecutionMode } from './types.js';
 
 const configDir = process.env.PETFISH_CONFIG_DIR ?? './config';
 const runtimeDir = process.env.PETFISH_RUNTIME_DIR ?? './.runtime';
@@ -181,6 +181,49 @@ if (config.gateway.enabled) {
 
 const taskManager = new TaskManager(storage, runtimeRouter, projectRegistry, policyEngine);
 
+function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, instruction: string, mode: ExecutionMode): void {
+  const task = taskManager.createTask({ project_id: projectId, user_id: userId, instruction, mode });
+  sessionManager.updateTask(event.chat_id, task.task_id);
+  taskIdToChatId.set(task.task_id, event.chat_id);
+  if (gateway) {
+    const ci = gateway.registry.findByProject(projectId);
+    if (ci) connectorIdToChatId.set(ci.connectorId, event.chat_id);
+  }
+
+  if (telegramAdapter) {
+    void telegramAdapter.sendTyping(event.chat_id);
+  }
+
+  const batcher = new OutputBatcher(
+    (text) => {
+      if (!telegramAdapter) return Promise.resolve();
+      return telegramAdapter.sendMessage({
+        platform: 'telegram',
+        chat_id: event.chat_id,
+        reply_to: event.message_id,
+        message_type: 'text',
+        text,
+      });
+    },
+    task.task_id,
+  );
+
+  const typingInterval = setInterval(() => {
+    if (telegramAdapter) void telegramAdapter.sendTyping(event.chat_id);
+  }, 4000);
+
+  taskManager.dispatchTask(task.task_id, (chunk) => {
+    batcher.append(chunk);
+  }).then((result) => {
+    clearInterval(typingInterval);
+    void batcher.complete(result.exitCode);
+  }).catch((err: unknown) => {
+    clearInterval(typingInterval);
+    const msg = err instanceof Error ? err.message : String(err);
+    void batcher.fail(msg);
+  });
+}
+
 async function handleChatEvent(event: ChatEvent): Promise<void> {
   const userId = `${event.platform}:${event.user_id}`;
 
@@ -257,53 +300,124 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         responseText = 'Usage: /pf ask <instruction>';
         break;
       }
-      const task = taskManager.createTask({
-        project_id: session.project_id,
-        user_id: userId,
-        instruction,
-        mode: 'read_only',
-      });
-      sessionManager.updateTask(event.chat_id, task.task_id);
-      taskIdToChatId.set(task.task_id, event.chat_id);
-      if (gateway) {
-        const ci = gateway.registry.findByProject(session.project_id);
-        if (ci) connectorIdToChatId.set(ci.connectorId, event.chat_id);
-      }
-
-      if (telegramAdapter) {
-        void telegramAdapter.sendTyping(event.chat_id);
-      }
-
+      dispatchAgentTask(event, session.project_id, userId, instruction, 'read_only');
       responseText = '';
-
-      const batcher = new OutputBatcher(
-        (text) => {
-          if (!telegramAdapter) return Promise.resolve();
-          return telegramAdapter.sendMessage({
-            platform: 'telegram',
-            chat_id: event.chat_id,
-            reply_to: event.message_id,
-            message_type: 'text',
-            text,
-          });
-        },
-        task.task_id,
-      );
-
-      const typingInterval = setInterval(() => {
-        if (telegramAdapter) void telegramAdapter.sendTyping(event.chat_id);
-      }, 4000);
-
-      taskManager.dispatchTask(task.task_id, (chunk) => {
-        batcher.append(chunk);
-      }).then((result) => {
-        clearInterval(typingInterval);
-        void batcher.complete(result.exitCode);
-      }).catch((err: unknown) => {
-        clearInterval(typingInterval);
-        const msg = err instanceof Error ? err.message : String(err);
-        void batcher.fail(msg);
-      });
+      break;
+    }
+    case 'edit': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      const editInstruction = parsed.args.length > 0 ? parsed.args.join(' ') : '';
+      if (!editInstruction) {
+        responseText = 'Usage: /pf edit <instruction>';
+        break;
+      }
+      dispatchAgentTask(event, session.project_id, userId, editInstruction, 'edit_guarded');
+      responseText = '';
+      break;
+    }
+    case 'test': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      dispatchAgentTask(event, session.project_id, userId, 'Run the project tests and report results.', 'read_only');
+      responseText = '';
+      break;
+    }
+    case 'diff': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      dispatchAgentTask(event, session.project_id, userId, 'Show the current git diff (staged and unstaged changes). Output the diff directly.', 'read_only');
+      responseText = '';
+      break;
+    }
+    case 'approve': {
+      const approvalId = parsed.args[0];
+      if (!approvalId) {
+        responseText = 'Usage: /pf approve <approval_id>';
+        break;
+      }
+      const permCtx = permissionIdToContext.get(approvalId);
+      if (!permCtx) {
+        responseText = `Approval not found or already handled: ${approvalId}`;
+        break;
+      }
+      permissionIdToContext.delete(approvalId);
+      if (gateway) {
+        gateway.sendPermissionReply(permCtx.connectorId, permCtx.taskId, approvalId, true);
+      }
+      responseText = `✅ Approved: ${approvalId}`;
+      break;
+    }
+    case 'deny': {
+      const denyId = parsed.args[0];
+      if (!denyId) {
+        responseText = 'Usage: /pf deny <approval_id>';
+        break;
+      }
+      const denyCtx = permissionIdToContext.get(denyId);
+      if (!denyCtx) {
+        responseText = `Approval not found or already handled: ${denyId}`;
+        break;
+      }
+      permissionIdToContext.delete(denyId);
+      if (gateway) {
+        gateway.sendPermissionReply(denyCtx.connectorId, denyCtx.taskId, denyId, false);
+      }
+      responseText = `❌ Denied: ${denyId}`;
+      break;
+    }
+    case 'log': {
+      const logTaskId = parsed.args[0];
+      if (!logTaskId) {
+        const session = sessionManager.getSession(event.chat_id);
+        if (session?.active_task_id) {
+          const task = taskManager.getTask(session.active_task_id);
+          responseText = task
+            ? `Task: ${task.task_id}\nStatus: ${task.status}\nInstruction: ${task.instruction}`
+            : 'Task not found.';
+        } else {
+          responseText = 'Usage: /pf log [task_id] (or have an active task)';
+        }
+        break;
+      }
+      const logTask = taskManager.getTask(logTaskId);
+      responseText = logTask
+        ? `Task: ${logTask.task_id}\nStatus: ${logTask.status}\nInstruction: ${logTask.instruction}`
+        : `Task not found: ${logTaskId}`;
+      break;
+    }
+    case 'pr': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      const prArgs = parsed.args.length > 0 ? ` with title: ${parsed.args.join(' ')}` : '';
+      dispatchAgentTask(event, session.project_id, userId, `Create a pull request for the current branch${prArgs}. Push if needed, then create the PR and return the URL.`, 'execute_guarded');
+      responseText = '';
+      break;
+    }
+    case 'commit': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      const commitMsg = parsed.args.length > 0 ? parsed.args.join(' ') : '';
+      const commitInstruction = commitMsg
+        ? `Commit all current changes with message: "${commitMsg}"`
+        : 'Commit all current changes with an appropriate commit message based on the diff.';
+      dispatchAgentTask(event, session.project_id, userId, commitInstruction, 'execute_guarded');
+      responseText = '';
       break;
     }
     case 'status': {
