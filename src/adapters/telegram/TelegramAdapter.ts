@@ -19,9 +19,10 @@ export interface TelegramDeps {
 interface PendingQuestion {
   questionId: string;
   chatId: string;
-  messageId: number;
+  messageIds: number[];
   questions: TaskQuestionPayload['questions'];
-  selectedPerQuestion: Map<number, Set<string>>;
+  answers: Map<number, string[]>;
+  totalQuestions: number;
 }
 
 export class TelegramAdapter {
@@ -191,21 +192,24 @@ export class TelegramAdapter {
       const option = question.options[oi];
       if (!option) return;
 
-      this.pendingQuestions.delete(questionId);
-      this.chatToPendingQuestion.delete(pending.chatId);
-
-      const answers: string[][] = pending.questions.map((_, i) => {
-        if (i === qi) return [option.label];
-        return [];
-      });
+      pending.answers.set(qi, [option.label]);
 
       await ctx.editMessageText(
-        `🤔 *Agent asked:* ${question.header || question.question}\n✅ You answered: *${option.label}*`,
+        `✅ *${question.header || question.question}*\nAnswered: *${option.label}*`,
         { parse_mode: 'Markdown' },
       );
 
-      if (this.onQuestionReply) {
-        this.onQuestionReply(questionId, answers);
+      if (pending.answers.size >= pending.totalQuestions) {
+        this.pendingQuestions.delete(questionId);
+        this.chatToPendingQuestion.delete(pending.chatId);
+
+        const answers: string[][] = pending.questions.map((_, i) => {
+          return pending.answers.get(i) ?? [];
+        });
+
+        if (this.onQuestionReply) {
+          this.onQuestionReply(questionId, answers);
+        }
       }
     });
 
@@ -295,6 +299,15 @@ export class TelegramAdapter {
     const id = Number(chatId);
     if (Number.isNaN(id)) return;
 
+    const pending: PendingQuestion = {
+      questionId: payload.questionId,
+      chatId,
+      messageIds: [],
+      questions: payload.questions,
+      answers: new Map(),
+      totalQuestions: payload.questions.length,
+    };
+
     for (let qi = 0; qi < payload.questions.length; qi++) {
       const q = payload.questions[qi];
       const keyboard = new InlineKeyboard();
@@ -307,7 +320,7 @@ export class TelegramAdapter {
 
       if (q.options.length % 2 === 1) keyboard.row();
 
-      let text = `🤔 *Agent is asking:*\n\n`;
+      let text = `🤔 *Agent is asking (${qi + 1}/${payload.questions.length}):*\n\n`;
       if (q.header) text += `*${q.header}*\n`;
       text += q.question;
       if (q.custom) text += '\n\n💬 Or reply with your own answer.';
@@ -317,16 +330,11 @@ export class TelegramAdapter {
         reply_markup: keyboard,
       });
 
-      const pending: PendingQuestion = {
-        questionId: payload.questionId,
-        chatId,
-        messageId: sent.message_id,
-        questions: payload.questions,
-        selectedPerQuestion: new Map([[qi, new Set<string>()]]),
-      };
-      this.pendingQuestions.set(payload.questionId, pending);
-      this.chatToPendingQuestion.set(chatId, payload.questionId);
+      pending.messageIds.push(sent.message_id);
     }
+
+    this.pendingQuestions.set(payload.questionId, pending);
+    this.chatToPendingQuestion.set(chatId, payload.questionId);
   }
 
   public async sendPermission(chatId: string, _taskId: string, permissionId: string, tool: string, input: Record<string, unknown>): Promise<void> {
@@ -366,13 +374,41 @@ export class TelegramAdapter {
     const pending = this.pendingQuestions.get(questionId);
     if (!pending) return false;
 
-    this.pendingQuestions.delete(questionId);
-    this.chatToPendingQuestion.delete(chatId);
-
-    const answers: string[][] = pending.questions.map(() => [text]);
-    if (this.onQuestionReply) {
-      this.onQuestionReply(questionId, answers);
+    let targetQi = -1;
+    for (let i = 0; i < pending.totalQuestions; i++) {
+      if (!pending.answers.has(i)) {
+        targetQi = i;
+        break;
+      }
     }
+
+    if (targetQi === -1) return false;
+
+    pending.answers.set(targetQi, [text]);
+
+    const question = pending.questions[targetQi];
+    const msgId = pending.messageIds[targetQi];
+    if (msgId) {
+      void this.bot.api.editMessageText(
+        Number(chatId), msgId,
+        `✅ *${question.header || question.question}*\nAnswered: *${text}*`,
+        { parse_mode: 'Markdown' },
+      ).catch(() => {});
+    }
+
+    if (pending.answers.size >= pending.totalQuestions) {
+      this.pendingQuestions.delete(questionId);
+      this.chatToPendingQuestion.delete(chatId);
+
+      const answers: string[][] = pending.questions.map((_, i) => {
+        return pending.answers.get(i) ?? [];
+      });
+
+      if (this.onQuestionReply) {
+        this.onQuestionReply(questionId, answers);
+      }
+    }
+
     return true;
   }
 }
