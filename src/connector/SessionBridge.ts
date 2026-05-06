@@ -26,17 +26,17 @@ interface PendingPrompt {
 export class SessionBridge {
   private sessionId: string | undefined;
   private opencodePort: string | undefined;
-  private readonly opencodeBin: string;
   private readonly pending = new Map<string, PendingPrompt>();
   private readonly messageToTask = new Map<string, string>();
   private readonly localQueue: Array<{ taskId: string; instruction: string; onOutput: OutputCallback; onComplete: CompleteCallback; onFail: FailCallback }> = [];
   private sseRequest: http.ClientRequest | undefined;
   private sseReconnectTimer: NodeJS.Timeout | undefined;
+  private idleDrainTimer: NodeJS.Timeout | undefined;
+  private readonly idleConfirmMs = 1500;
+  private lastCompletedAssistantId: string | undefined;
   private stopped = false;
 
-  public constructor(config: SessionBridgeConfig) {
-    this.opencodeBin = config.opencodeBin ?? process.env['OPENCODE_BIN'] ?? 'opencode';
-  }
+  public constructor(_config: SessionBridgeConfig) {}
 
   public async init(): Promise<void> {
     this.opencodePort = this.discoverPort();
@@ -47,8 +47,9 @@ export class SessionBridge {
     if (!this.opencodePort) {
       throw new Error('Cannot discover opencode port. Is OPENCODE_PID set?');
     }
+    this.lastCompletedAssistantId = this.discoverLastAssistantMessage();
     this.connectSSE();
-    console.log(`SessionBridge: session=${this.sessionId} port=${this.opencodePort} bin=${this.opencodeBin}`);
+    console.log(`SessionBridge: session=${this.sessionId} port=${this.opencodePort} lastAssistant=${this.lastCompletedAssistantId ?? 'none'}`);
   }
 
   public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): boolean {
@@ -57,15 +58,48 @@ export class SessionBridge {
       return false;
     }
 
-    if (this.isSessionBusy()) {
-      console.log(`[SessionBridge] Session busy, queuing task ${taskId}`);
-      this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
+    this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
+
+    if (this.pending.size > 0) {
+      console.log(`[SessionBridge] IM task in-flight, queuing ${taskId}`);
       onOutput(taskId, 'stdout', '⏳ opencode is currently busy. Your request is queued and will be processed when idle.\n');
       return true;
     }
 
-    this.injectPrompt(taskId, instruction, onOutput, onComplete, onFail);
+    this.scheduleIdleDrain();
     return true;
+  }
+
+  private scheduleIdleDrain(): void {
+    if (this.idleDrainTimer) return;
+    if (this.localQueue.length === 0) return;
+
+    this.idleDrainTimer = setTimeout(() => {
+      this.idleDrainTimer = undefined;
+      this.confirmAndDrain();
+    }, this.idleConfirmMs);
+  }
+
+  private cancelIdleDrain(): void {
+    if (this.idleDrainTimer) {
+      clearTimeout(this.idleDrainTimer);
+      this.idleDrainTimer = undefined;
+    }
+  }
+
+  private confirmAndDrain(): void {
+    if (this.localQueue.length === 0) return;
+    if (this.pending.size > 0) return;
+
+    const busy = this.isSessionBusy();
+    if (busy) {
+      console.log('[SessionBridge] Idle drain aborted — session still busy');
+      return;
+    }
+
+    const next = this.localQueue.shift()!;
+    console.log(`[SessionBridge] Confirmed idle, injecting taskId=${next.taskId} (${this.localQueue.length} remaining)`);
+    this.injectPrompt(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail);
   }
 
   private isSessionBusy(): boolean {
@@ -104,6 +138,7 @@ export class SessionBridge {
 
     const body = JSON.stringify({
       messageID: userMessageId,
+      parentID: this.lastCompletedAssistantId,
       parts: [{ type: 'text', text: instruction }],
     });
 
@@ -146,6 +181,7 @@ export class SessionBridge {
 
   public stop(): void {
     this.stopped = true;
+    this.cancelIdleDrain();
     if (this.sseReconnectTimer) {
       clearTimeout(this.sseReconnectTimer);
       this.sseReconnectTimer = undefined;
@@ -233,6 +269,8 @@ export class SessionBridge {
       this.handlePartUpdated(event.properties);
     } else if (event.type === 'session.idle') {
       this.handleSessionIdle(event.properties);
+    } else if (event.type === 'session.status') {
+      this.handleSessionStatus(event.properties);
     }
   }
 
@@ -242,6 +280,10 @@ export class SessionBridge {
     if (!info) return;
 
     console.log(`[SSE] message.updated role=${info.role} id=${info.id} parentID=${info.parentID} completed=${!!info.time?.completed}`);
+
+    if (info.role === 'assistant' && info.id && info.time?.completed) {
+      this.lastCompletedAssistantId = info.id;
+    }
 
     if (info.role === 'assistant' && info.parentID) {
       const taskId = this.messageToTask.get(info.parentID);
@@ -304,11 +346,16 @@ export class SessionBridge {
       }
     }
 
-    // Drain local queue: inject the next queued task now that session is idle
-    if (this.localQueue.length > 0) {
-      const next = this.localQueue.shift()!;
-      console.log(`[SessionBridge] Draining queue: taskId=${next.taskId} (${this.localQueue.length} remaining)`);
-      this.injectPrompt(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail);
+    this.scheduleIdleDrain();
+  }
+
+  private handleSessionStatus(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const sessionID = props['sessionID'] as string | undefined;
+    if (sessionID !== this.sessionId) return;
+    const status = props['status'] as { type?: string } | undefined;
+    if (status?.type === 'busy') {
+      this.cancelIdleDrain();
     }
   }
 
@@ -355,6 +402,27 @@ export class SessionBridge {
       sessions.sort((a, b) => b.time.updated - a.time.updated);
       return sessions[0].id;
     } catch {
+      return undefined;
+    }
+  }
+
+  private discoverLastAssistantMessage(): string | undefined {
+    if (!this.opencodePort || !this.sessionId) return undefined;
+    try {
+      const raw = execSync(
+        `curl -s --max-time 10 http://127.0.0.1:${this.opencodePort}/session/${this.sessionId}/message`,
+        { encoding: 'utf-8', timeout: 15000, maxBuffer: 50 * 1024 * 1024 },
+      );
+      const messages = JSON.parse(raw) as Array<{ info?: { id?: string; role?: string; time?: { completed?: number } } }>;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const info = messages[i].info;
+        if (info?.role === 'assistant' && info.id && info.time?.completed) {
+          return info.id;
+        }
+      }
+      return undefined;
+    } catch (e) {
+      console.log(`[SessionBridge] discoverLastAssistantMessage failed: ${e instanceof Error ? e.message : String(e)}`);
       return undefined;
     }
   }
