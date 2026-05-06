@@ -16,11 +16,18 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'restart', 'status', 'logs', 'help')]
+    [ValidateSet('start', 'stop', 'restart', 'status', 'logs', 'setup', 'help')]
     [string]$Command = 'help',
 
     [Parameter(Position = 1)]
-    [string]$ConfigPath
+    [string]$ConfigPath,
+
+    [string]$Token,
+    [string]$ProjectId,
+    [string]$ProjectName,
+    [string]$ProjectPath,
+    [string]$Server = 'https://remote.petfish.ai',
+    [string]$Output
 )
 
 $ErrorActionPreference = 'Stop'
@@ -216,6 +223,68 @@ function Invoke-Logs {
     Get-Content $logFile -Tail 50
 }
 
+function Invoke-Setup {
+    if (-not $Token) {
+        Write-Error "Token required. Get one from /start in Telegram bot.`nUsage: .\petfish-connect.ps1 setup -Token <token> -ProjectId <id>"
+        return
+    }
+    if (-not $ProjectId) {
+        $ProjectId = Split-Path -Leaf (Get-Location)
+    }
+    if (-not $ProjectName) { $ProjectName = $ProjectId }
+    if (-not $ProjectPath) { $ProjectPath = (Get-Location).Path }
+    if (-not $Output) { $Output = Join-Path (Get-Location) 'connector.yaml' }
+
+    $hostname = $env:COMPUTERNAME
+
+    Write-Host "><(((^> petfish-connect: registering with server..."
+    Write-Host "   server: $Server"
+    Write-Host "   project: $ProjectId ($ProjectName)"
+    Write-Host "   path: $ProjectPath"
+
+    $body = @{
+        token       = $Token
+        projectId   = $ProjectId
+        projectName = $ProjectName
+        projectPath = $ProjectPath
+        hostname    = $hostname
+    } | ConvertTo-Json
+
+    try {
+        $resp = Invoke-RestMethod -Uri "$Server/api/register" -Method POST -ContentType 'application/json' -Body $body
+    }
+    catch {
+        Write-Error "Registration failed: $_"
+        return
+    }
+
+    if (-not $resp.connectorToken) {
+        Write-Error "No connectorToken in response: $($resp | ConvertTo-Json -Compress)"
+        return
+    }
+
+    $yaml = @"
+connectorId: auto
+serverUrl: "$($resp.serverUrl)"
+token: "$($resp.connectorToken)"
+reconnectIntervalMs: 5000
+maxReconnectIntervalMs: 60000
+
+projects:
+  - id: $ProjectId
+    path: $ProjectPath
+    opencodeBin: opencode
+"@
+
+    Set-Content -Path $Output -Value $yaml -Encoding UTF8
+    Write-Host ""
+    Write-Host "   ✅ Registration successful!"
+    Write-Host "   Config written to: $Output"
+    Write-Host ""
+    Write-Host "Start the connector with:"
+    Write-Host "  .\petfish-connect.ps1 start $Output"
+}
+
 switch ($Command) {
     'start'   { Invoke-Start $ConfigPath }
     'stop'    { Invoke-Stop $ConfigPath }
@@ -226,14 +295,19 @@ switch ($Command) {
     }
     'status'  { Invoke-Status $ConfigPath }
     'logs'    { Invoke-Logs $ConfigPath }
+    'setup'   { Invoke-Setup }
     'help'    {
-        Write-Host "Usage: .\petfish-connect.ps1 {start|stop|restart|status|logs} [connector.yaml]"
+        Write-Host "Usage: .\petfish-connect.ps1 {setup|start|stop|restart|status|logs} [connector.yaml]"
         Write-Host ""
         Write-Host "Commands:"
+        Write-Host "  setup   - Register with server and generate connector.yaml"
         Write-Host "  start   - Start connector as hidden background process"
         Write-Host "  stop    - Stop running connector"
         Write-Host "  restart - Stop and start"
         Write-Host "  status  - Show if running + recent log"
         Write-Host "  logs    - Show last 50 log lines"
+        Write-Host ""
+        Write-Host "Setup example:"
+        Write-Host "  .\petfish-connect.ps1 setup -Token <token> -ProjectId my-project"
     }
 }

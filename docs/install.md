@@ -34,7 +34,7 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 
 ## Windows (PowerShell)
 
-Windows uses a two-step process: clone + run the management script.
+Windows uses a two-step process: clone + register with the server.
 
 ### Step 1 — Clone & Build
 
@@ -45,20 +45,17 @@ npm install
 npm run build
 ```
 
-### Step 2 — Configure
+### Step 2 — Register & Generate Config
 
-Create `connector.yaml` in the install directory:
-
-```yaml
-server:
-  url: "wss://remote.petfish.ai/ws/connector"
-  token: "<your-token>"
-
-projects:
-  - id: my-project
-    path: "C:\\Users\\you\\code\\my-project"
-    agent: opencode          # opencode | gemini | codex
+```powershell
+.\scripts\petfish-connect.ps1 setup -Token <your-token> -ProjectId my-project
 ```
+
+This exchanges the one-time token with the server and generates `connector.yaml` automatically.
+
+Optional parameters:
+- `-ProjectPath "C:\Users\you\code\my-project"` (defaults to current directory)
+- `-Server "https://your-server.com"` (defaults to `https://remote.petfish.ai`)
 
 ### Step 3 — Start the daemon
 
@@ -75,7 +72,6 @@ The script uses `Start-Process` to launch a background daemon that persists afte
 .\scripts\petfish-connect.ps1 stop                # Stop daemon
 .\scripts\petfish-connect.ps1 restart connector.yaml  # Restart
 .\scripts\petfish-connect.ps1 logs                # Tail logs
-.\scripts\petfish-connect.ps1 logs -n 50          # Last 50 lines
 ```
 
 ## Upgrade
@@ -135,6 +131,10 @@ PetFish Remote supports multiple AI coding agents per project:
 Configure per-project in `connector.yaml`:
 
 ```yaml
+connectorId: auto
+serverUrl: "wss://remote.petfish.ai/ws/connector"
+token: "<connector-auth-token>"
+
 projects:
   - id: frontend
     path: ~/code/frontend
