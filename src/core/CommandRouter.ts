@@ -13,7 +13,8 @@ export type SupportedCommandName =
   | 'stop'
   | 'log'
   | 'pr'
-  | 'commit';
+  | 'commit'
+  | 'new';
 
 export interface ParsedCommand {
   name: SupportedCommandName;
@@ -37,6 +38,7 @@ const supportedCommands: ReadonlySet<SupportedCommandName> = new Set<SupportedCo
   'log',
   'pr',
   'commit',
+  'new',
 ]);
 
 export class CommandRouter {

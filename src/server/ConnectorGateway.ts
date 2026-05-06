@@ -224,7 +224,16 @@ export class ConnectorGateway extends EventEmitter {
         });
         ws.send(JSON.stringify(ack));
 
-        console.log(`Connector registered: ${connectorId} (${payload.hostname}, ${payload.projects.length} projects)`);
+        if (payload.version && payload.version !== SERVER_VERSION) {
+          const upgradeMsg = createEnvelope(MSG.UPGRADE_AVAILABLE, {
+            version: SERVER_VERSION,
+            currentVersion: payload.version,
+            message: `Update available: ${payload.version} → ${SERVER_VERSION}. Run: petfish-connect.sh stop && petfish-connect.sh start`,
+          });
+          ws.send(JSON.stringify(upgradeMsg));
+        }
+
+        console.log(`Connector registered: ${connectorId} (${payload.hostname}, v${payload.version ?? '?'}, ${payload.projects.length} projects)`);
         return;
       }
 

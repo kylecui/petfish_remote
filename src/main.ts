@@ -18,6 +18,7 @@ import { OutputBatcher } from './render/OutputBatcher.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
+import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse } from './types.js';
 
@@ -192,7 +193,12 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         mode: 'read_only',
       });
       sessionManager.updateTask(event.chat_id, task.task_id);
-      responseText = messageRenderer.renderTaskCreated(task);
+
+      if (telegramAdapter) {
+        void telegramAdapter.sendTyping(event.chat_id);
+      }
+
+      responseText = '';
 
       const batcher = new OutputBatcher(
         (text) => {
@@ -200,6 +206,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
           return telegramAdapter.sendMessage({
             platform: 'telegram',
             chat_id: event.chat_id,
+            reply_to: event.message_id,
             message_type: 'text',
             text,
           });
@@ -207,11 +214,17 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         task.task_id,
       );
 
+      const typingInterval = setInterval(() => {
+        if (telegramAdapter) void telegramAdapter.sendTyping(event.chat_id);
+      }, 4000);
+
       taskManager.dispatchTask(task.task_id, (chunk) => {
         batcher.append(chunk);
       }).then((result) => {
+        clearInterval(typingInterval);
         void batcher.complete(result.exitCode);
       }).catch((err: unknown) => {
+        clearInterval(typingInterval);
         const msg = err instanceof Error ? err.message : String(err);
         void batcher.fail(msg);
       });
@@ -239,21 +252,40 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       responseText = `Task ${session.active_task_id} cancelled.`;
       break;
     }
+    case 'new': {
+      const session = sessionManager.getSession(event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      if (gateway) {
+        const connectorInfo = gateway.registry.findByProject(session.project_id);
+        if (connectorInfo) {
+          const envelope = createEnvelope(MSG.SESSION_NEW, { projectId: session.project_id });
+          gateway.sendToConnector(connectorInfo.connectorId, envelope);
+          responseText = '🔄 New session requested. Next message starts fresh context.';
+        } else {
+          responseText = 'Connector not connected. Cannot create new session.';
+        }
+      } else {
+        responseText = 'Gateway not enabled.';
+      }
+      break;
+    }
     default: {
       responseText = `Unknown command: ${parsed.name}. Try /pf help`;
       break;
     }
   }
 
-  const response: ChatResponse = {
-    platform: event.platform,
-    chat_id: event.chat_id,
-    reply_to: event.message_id,
-    message_type: 'text',
-    text: responseText,
-  };
-
-  if (telegramAdapter) {
+  if (responseText && telegramAdapter) {
+    const response: ChatResponse = {
+      platform: event.platform,
+      chat_id: event.chat_id,
+      reply_to: event.message_id,
+      message_type: 'text',
+      text: responseText,
+    };
     await telegramAdapter.sendMessage(response);
   }
 }

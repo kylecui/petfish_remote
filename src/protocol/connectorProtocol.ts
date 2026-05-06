@@ -25,6 +25,7 @@ export const registerPayloadSchema = z.object({
   connectorId: z.string(),
   token: z.string(),
   hostname: z.string(),
+  version: z.string().optional(),
   projects: z.array(
     z.object({
       id: z.string(),
@@ -143,7 +144,9 @@ export const MSG = {
   TASK_COMPLETE: 'task.complete',
   TASK_FAIL: 'task.fail',
   TASK_CONTROL: 'task.control',
+  SESSION_NEW: 'session.new',
   RESUME_RUNNING: 'resume.running',
+  UPGRADE_AVAILABLE: 'upgrade.available',
   ERROR: 'error',
   PING: 'ping',
   PONG: 'pong',

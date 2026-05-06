@@ -63,6 +63,7 @@ export class TelegramAdapter {
         .text('📋 Projects', 'pf:list')
         .text('📊 Status', 'pf:status')
         .row()
+        .text('🔄 New', 'pf:new')
         .text('🛑 Stop', 'pf:stop')
         .text('❓ Help', 'pf:help');
 
@@ -135,6 +136,12 @@ export class TelegramAdapter {
       if (event) await this.onEvent(event);
     });
 
+    this.bot.callbackQuery('pf:new', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf new');
+      if (event) await this.onEvent(event);
+    });
+
     this.bot.callbackQuery('pf:back', async (ctx) => {
       await ctx.answerCallbackQuery();
       const binding = this.deps?.getBinding(String(ctx.chatId));
@@ -142,6 +149,7 @@ export class TelegramAdapter {
         .text('📋 Projects', 'pf:list')
         .text('📊 Status', 'pf:status')
         .row()
+        .text('🔄 New', 'pf:new')
         .text('🛑 Stop', 'pf:stop')
         .text('❓ Help', 'pf:help');
 
@@ -206,5 +214,11 @@ export class TelegramAdapter {
       parse_mode: response.message_type === 'markdown' ? 'Markdown' : undefined,
       reply_parameters: response.reply_to ? { message_id: Number(response.reply_to) } : undefined,
     });
+  }
+
+  public async sendTyping(chatId: string): Promise<void> {
+    const id = Number(chatId);
+    if (Number.isNaN(id)) return;
+    await this.bot.api.sendChatAction(id, 'typing').catch(() => {});
   }
 }

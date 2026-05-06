@@ -1,4 +1,7 @@
 import { hostname } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import WebSocket from 'ws';
 
@@ -16,6 +19,17 @@ import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
 import type { SessionBridge } from './SessionBridge.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const localPkgPath = resolve(__dirname, '../../package.json');
+
+function readLocalVersion(): string | undefined {
+  try {
+    return JSON.parse(readFileSync(localPkgPath, 'utf-8')).version as string;
+  } catch {
+    return undefined;
+  }
+}
+
 export class ConnectorClient {
   private ws: WebSocket | undefined;
   private reconnectDelay: number;
@@ -27,6 +41,7 @@ export class ConnectorClient {
   private readonly clientPingIntervalMs = 15_000;
   private readonly sendBuffer: string[] = [];
   private readonly maxBufferSize = 200;
+  private readonly localVersion = readLocalVersion();
 
   public constructor(
     private readonly config: ConnectorConfig,
@@ -123,6 +138,7 @@ export class ConnectorClient {
         connectorId: this.config.connectorId,
         token: this.config.token,
         hostname: hostname(),
+        version: this.localVersion ?? 'unknown',
         projects,
       }),
     );
@@ -132,14 +148,19 @@ export class ConnectorClient {
     console.log(`[ws-recv] type=${envelope.type} taskId=${envelope.taskId ?? 'none'}`);
     switch (envelope.type) {
       case MSG.REGISTERED:
-        console.log('Registration accepted by server');
-        this.drainSendBuffer();
+        this.handleRegistered(envelope);
         break;
       case MSG.TASK_START:
         this.handleTaskStart(envelope);
         break;
       case MSG.TASK_CONTROL:
         this.handleTaskControl(envelope);
+        break;
+      case MSG.SESSION_NEW:
+        this.handleSessionNew();
+        break;
+      case MSG.UPGRADE_AVAILABLE:
+        this.handleUpgradeAvailable(envelope);
         break;
       case MSG.ERROR:
         console.error('Server error:', envelope.payload);
@@ -150,6 +171,27 @@ export class ConnectorClient {
       default:
         console.warn(`Unknown message type: ${envelope.type}`);
     }
+  }
+
+  private handleRegistered(envelope: Envelope): void {
+    const serverVersion = (envelope.payload as { serverVersion?: string }).serverVersion;
+    console.log(`Registration accepted by server (version: ${serverVersion ?? 'unknown'})`);
+    if (serverVersion && this.localVersion && serverVersion !== this.localVersion) {
+      console.warn(`⚠️  Version mismatch: local=${this.localVersion} server=${serverVersion}. Run: petfish-connect.sh stop && petfish-connect.sh start`);
+    }
+    this.drainSendBuffer();
+  }
+
+  private handleSessionNew(): void {
+    if (this.sessionBridge) {
+      console.log('[session] Server requested new session — triggering rediscover');
+      void this.sessionBridge.requestNewSession();
+    }
+  }
+
+  private handleUpgradeAvailable(envelope: Envelope): void {
+    const payload = envelope.payload as { version?: string; message?: string };
+    console.warn(`⚠️  Upgrade available: ${payload.version ?? 'unknown'} — ${payload.message ?? 'Run petfish-connect.sh stop && petfish-connect.sh start to update'}`);
   }
 
   private handleTaskStart(envelope: Envelope): void {

@@ -270,6 +270,24 @@ export class SessionBridge {
     }
   }
 
+  public async requestNewSession(): Promise<void> {
+    if (!this.opencodePort) {
+      console.warn('[SessionBridge] requestNewSession: no opencode port');
+      return;
+    }
+
+    try {
+      execSync(
+        `curl -s --max-time 5 -X POST http://127.0.0.1:${this.opencodePort}/session`,
+        { encoding: 'utf-8', timeout: 8000 },
+      );
+      this.rediscover();
+      console.log(`[SessionBridge] new session created, now on session=${this.sessionId}`);
+    } catch (err) {
+      console.warn(`[SessionBridge] requestNewSession failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   public stop(): void {
     this.stopped = true;
     this.cancelIdleDrain();
