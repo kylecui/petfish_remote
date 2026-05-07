@@ -24,6 +24,7 @@
   "author": "",
   "license": "SEE LICENSE IN LICENSE AND LICENSE-SERVER",
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.62.1",
     "better-sqlite3": "^11.8.0",
     "grammy": "^1.35.0",
     "nanoid": "^5.1.0",
