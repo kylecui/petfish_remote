@@ -43,9 +43,9 @@ export class OutputBatcher {
     }
 
     const status = exitCode === 0 ? '✅ completed' : '❌ failed';
-    const prefix = this.projectLabel ? `📂 ${this.projectLabel} · ` : '';
+    const prefix = this.projectLabel ? `📂 *${this.projectLabel}* · ` : '';
     try {
-      await this.sendFn(`${prefix}Task ${this.taskId} ${status} (${this.totalChars} chars, ${this.messageCount} messages)`, true);
+      await this.sendFn(`${prefix}Task \`${this.taskId}\` ${status} (${this.totalChars} chars, ${this.messageCount} messages)`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send completion for task ${this.taskId}: ${msg}`);
@@ -60,9 +60,9 @@ export class OutputBatcher {
       await this.flush();
     }
 
-    const prefix = this.projectLabel ? `📂 ${this.projectLabel} · ` : '';
+    const prefix = this.projectLabel ? `📂 *${this.projectLabel}* · ` : '';
     try {
-      await this.sendFn(`${prefix}Task ${this.taskId} ❌ error: ${error}`, true);
+      await this.sendFn(`${prefix}Task \`${this.taskId}\` ❌ error: ${error}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send error for task ${this.taskId}: ${msg}`);
@@ -83,7 +83,7 @@ export class OutputBatcher {
       : this.buffer;
 
     if (this.firstFlush && this.projectLabel) {
-      text = `📂 ${this.projectLabel}\n${text}`;
+      text = `📂 *${this.projectLabel}*\n${text}`;
       this.firstFlush = false;
     }
 
@@ -91,7 +91,7 @@ export class OutputBatcher {
     this.messageCount++;
 
     try {
-      await this.sendFn(text, true);
+      await this.sendFn(text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send batched output for task ${this.taskId}: ${msg}`);

@@ -220,8 +220,8 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
       platform: 'telegram',
       chat_id: event.chat_id,
       reply_to: event.message_id,
-      message_type: 'text',
-      text: `📂 ${projectId} · Task ${task.task_id} accepted`,
+      message_type: 'markdown',
+      text: `📂 *${projectId}* · Task \`${task.task_id}\` accepted`,
     });
   }
 
