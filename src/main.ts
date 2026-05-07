@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { loadConfig } from './config.js';
-import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
+import { TelegramAdapter, escapeMarkdown } from './adapters/telegram/TelegramAdapter.js';
 import type { TelegramDeps } from './adapters/telegram/TelegramAdapter.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
@@ -221,7 +221,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
       chat_id: event.chat_id,
       reply_to: event.message_id,
       message_type: 'markdown',
-      text: `📂 *${projectId}* · Task \`${task.task_id}\` accepted`,
+      text: `📂 *${escapeMarkdown(projectId)}* · Task \`${escapeMarkdown(task.task_id)}\` accepted`,
     });
   }
 

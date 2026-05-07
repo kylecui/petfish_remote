@@ -4,6 +4,14 @@ import type { ChatEvent, ChatResponse, ProjectConfig } from '../../types.js';
 import type { TaskQuestionPayload } from '../../protocol/connectorProtocol.js';
 import { telegramContextToChatEvent } from './telegramTypes.js';
 
+export function escapeMarkdown(text: string): string {
+  return text.replace(/([_*`\[\]])/g, '\\$1');
+}
+
+function stripMarkdown(text: string): string {
+  return text.replace(/[*_`]/g, '');
+}
+
 export type TelegramEventHandler = (event: ChatEvent) => Promise<void> | void;
 export type QuestionReplyHandler = (questionId: string, answers: string[][]) => void;
 export type PermissionReplyHandler = (permissionId: string, allowed: boolean) => void;
@@ -311,10 +319,24 @@ export class TelegramAdapter {
       throw new Error(`Invalid Telegram chat id: ${response.chat_id}`);
     }
 
-    await this.bot.api.sendMessage(chatId, response.text, {
-      parse_mode: response.message_type === 'markdown' ? 'Markdown' : undefined,
-      reply_parameters: response.reply_to ? { message_id: Number(response.reply_to) } : undefined,
-    });
+    const replyParams = response.reply_to ? { message_id: Number(response.reply_to) } : undefined;
+    const parseMode = response.message_type === 'markdown' ? 'Markdown' as const : undefined;
+
+    try {
+      await this.bot.api.sendMessage(chatId, response.text, {
+        parse_mode: parseMode,
+        reply_parameters: replyParams,
+      });
+    } catch (err) {
+      if (parseMode && err instanceof Error && err.message.includes("can't parse entities")) {
+        const plain = stripMarkdown(response.text);
+        await this.bot.api.sendMessage(chatId, plain, {
+          reply_parameters: replyParams,
+        });
+        return;
+      }
+      throw err;
+    }
   }
 
   public async sendTyping(chatId: string): Promise<void> {
