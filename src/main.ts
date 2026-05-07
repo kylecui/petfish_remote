@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
-import type { TelegramDeps } from './adapters/telegram/TelegramAdapter.js';
+import type { IMAdapter, AdapterDeps, AdapterInboundEvent } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
 import { SessionManager } from './core/SessionManager.js';
@@ -149,14 +149,14 @@ if (config.gateway.enabled) {
       }
     }
 
-    if (!telegramAdapter) return;
+    if (!adapter) return;
     const status = info ? '🟢 online' : '🔴 offline';
 
     if (!info) {
       const userChatId = connectorIdToChatId.get(connectorId);
       if (userChatId) {
-        void telegramAdapter.sendMessage({
-          platform: 'telegram',
+        void adapter.sendMessage({
+          platform: adapter.platform,
           chat_id: userChatId,
           message_type: 'text',
           text: `⚠️ Connector \`${connectorId}\` disconnected. It may be restarting — replies paused until reconnect.`,
@@ -166,8 +166,8 @@ if (config.gateway.enabled) {
 
     const adminChatId = process.env.PETFISH_ADMIN_CHAT_ID;
     if (adminChatId) {
-      void telegramAdapter.sendMessage({
-        platform: 'telegram',
+      void adapter.sendMessage({
+        platform: adapter.platform,
         chat_id: adminChatId,
         message_type: 'text',
         text: `Connector ${connectorId} is now ${status}`,
@@ -176,7 +176,7 @@ if (config.gateway.enabled) {
   });
 
   gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
-    if (!telegramAdapter) return;
+    if (!adapter) return;
     questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
     const chatId = resolveChatId(payload.taskId, connectorId);
     if (!chatId) {
@@ -184,11 +184,11 @@ if (config.gateway.enabled) {
       return;
     }
     console.log(`[question] Relaying question ${payload.questionId} to chat ${chatId}`);
-    void telegramAdapter.sendQuestion(chatId, payload);
+    void adapter.sendInteraction({ type: 'question', chatId, payload });
   });
 
   gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
-    if (!telegramAdapter) return;
+    if (!adapter) return;
     permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
     const chatId = resolveChatId(payload.taskId, connectorId);
     if (!chatId) {
@@ -196,7 +196,7 @@ if (config.gateway.enabled) {
       return;
     }
     console.log(`[permission] Relaying permission ${payload.permissionId} to chat ${chatId}`);
-    void telegramAdapter.sendPermission(chatId, payload.taskId, payload.permissionId, payload.tool, payload.input);
+    void adapter.sendInteraction({ type: 'permission', chatId, payload });
   });
 
   void gateway.start();
@@ -214,10 +214,10 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     if (ci) connectorIdToChatId.set(ci.connectorId, event.chat_id);
   }
 
-  if (telegramAdapter) {
-    void telegramAdapter.sendTyping(event.chat_id);
-    void telegramAdapter.sendMessage({
-      platform: 'telegram',
+  if (adapter) {
+    void adapter.sendTyping(event.chat_id);
+    void adapter.sendMessage({
+      platform: event.platform,
       chat_id: event.chat_id,
       reply_to: event.message_id,
       message_type: 'markdown',
@@ -227,9 +227,9 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
 
   const batcher = new OutputBatcher(
     (text, plain) => {
-      if (!telegramAdapter) return Promise.resolve();
-      return telegramAdapter.sendMessage({
-        platform: 'telegram',
+      if (!adapter) return Promise.resolve();
+      return adapter.sendMessage({
+        platform: event.platform,
         chat_id: event.chat_id,
         reply_to: event.message_id,
         message_type: plain ? 'text' : 'markdown',
@@ -243,7 +243,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
   );
 
   const typingInterval = setInterval(() => {
-    if (telegramAdapter) void telegramAdapter.sendTyping(event.chat_id);
+    if (adapter) void adapter.sendTyping(event.chat_id);
   }, 4000);
 
   taskManager.dispatchTask(task.task_id, (chunk) => {
@@ -263,9 +263,11 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
   auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'message_received', payload: event.text });
 
-  if (telegramAdapter && !event.text.startsWith('/') && telegramAdapter.hasPendingQuestion(event.chat_id)) {
-    telegramAdapter.handleCustomTextAnswer(event.chat_id, event.text);
-    return;
+  if (adapter && !event.text.startsWith('/') && adapter.hasPendingInteraction(event.chat_id)) {
+    if (adapter instanceof TelegramAdapter) {
+      const handled = adapter.handleCustomTextAnswer(event.chat_id, event.text);
+      if (handled) return;
+    }
   }
 
   let parsed;
@@ -502,7 +504,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     }
   }
 
-  if (responseText && telegramAdapter) {
+  if (responseText && adapter) {
     const response: ChatResponse = {
       platform: event.platform,
       chat_id: event.chat_id,
@@ -510,15 +512,52 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       message_type: 'text',
       text: responseText,
     };
-    await telegramAdapter.sendMessage(response);
+    await adapter.sendMessage(response);
   }
 }
 
-let telegramAdapter: TelegramAdapter | undefined;
+function handleAdapterEvent(event: AdapterInboundEvent): void {
+  switch (event.type) {
+    case 'message':
+      void handleChatEvent(event.event);
+      break;
+    case 'questionReply': {
+      const ctx = questionIdToContext.get(event.event.questionId);
+      if (!ctx) {
+        console.warn(`[question-reply] No context found for questionId=${event.event.questionId}`);
+        return;
+      }
+      questionIdToContext.delete(event.event.questionId);
+      if (gateway) {
+        console.log(`[question-reply] Sending answer for ${event.event.questionId} to connector ${ctx.connectorId}`);
+        gateway.sendQuestionReply(ctx.connectorId, ctx.taskId, event.event.questionId, event.event.answers);
+      }
+      break;
+    }
+    case 'permissionReply': {
+      const ctx = permissionIdToContext.get(event.event.permissionId);
+      if (!ctx) {
+        console.warn(`[permission-reply] No context found for permissionId=${event.event.permissionId}`);
+        return;
+      }
+      permissionIdToContext.delete(event.event.permissionId);
+      if (gateway) {
+        console.log(`[permission-reply] Sending ${event.event.allowed ? 'allow' : 'deny'} for ${event.event.permissionId} to connector ${ctx.connectorId}`);
+        gateway.sendPermissionReply(ctx.connectorId, ctx.taskId, event.event.permissionId, event.event.allowed);
+      }
+      break;
+    }
+    case 'error':
+      console.error(`[adapter] Error:`, event.error);
+      break;
+  }
+}
+
+let adapter: IMAdapter | undefined;
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 if (telegramToken) {
-  const telegramDeps: TelegramDeps = {
+  const adapterDeps: AdapterDeps = {
     listProjects: (userId: string) =>
       projectRegistry.listProjects().filter((p) => projectRegistry.isUserAllowed(p.id, userId)),
     getBinding: (chatId: string) => sessionManager.getSession(chatId) ?? undefined,
@@ -529,41 +568,18 @@ if (telegramToken) {
       : undefined,
   };
 
-  telegramAdapter = new TelegramAdapter(telegramToken, handleChatEvent, telegramDeps);
-
-  if (gateway) {
-    const gw = gateway;
-    telegramAdapter.setQuestionReplyHandler((questionId, answers) => {
-      const ctx = questionIdToContext.get(questionId);
-      if (!ctx) {
-        console.warn(`[question-reply] No context found for questionId=${questionId}`);
-        return;
-      }
-      questionIdToContext.delete(questionId);
-      console.log(`[question-reply] Sending answer for ${questionId} to connector ${ctx.connectorId}`);
-      gw.sendQuestionReply(ctx.connectorId, ctx.taskId, questionId, answers);
-    });
-
-    telegramAdapter.setPermissionReplyHandler((permissionId, allowed) => {
-      const ctx = permissionIdToContext.get(permissionId);
-      if (!ctx) {
-        console.warn(`[permission-reply] No context found for permissionId=${permissionId}`);
-        return;
-      }
-      permissionIdToContext.delete(permissionId);
-      console.log(`[permission-reply] Sending ${allowed ? 'allow' : 'deny'} for ${permissionId} to connector ${ctx.connectorId}`);
-      gw.sendPermissionReply(ctx.connectorId, ctx.taskId, permissionId, allowed);
-    });
-  }
+  const telegramAdapter = new TelegramAdapter(telegramToken, adapterDeps);
+  adapter = telegramAdapter;
+  adapter.onEvent(handleAdapterEvent);
 
   const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);
 
-    if (telegramAdapter) {
+    if (adapter) {
       const chatIds = new Set([...taskIdToChatId.values(), ...connectorIdToChatId.values()]);
       const notifications = [...chatIds].map((chatId) =>
-        telegramAdapter!.sendMessage({
-          platform: 'telegram',
+        adapter!.sendMessage({
+          platform: adapter!.platform,
           chat_id: chatId,
           message_type: 'text',
           text: '🔄 PetFish Remote is restarting — back in a few seconds.',
@@ -577,7 +593,7 @@ if (telegramToken) {
       process.exit(1);
     }, 10_000);
     try {
-      await Promise.allSettled([telegramAdapter?.stop(), gateway?.stop()]);
+      await Promise.allSettled([adapter?.stop(), gateway?.stop()]);
     } finally {
       clearTimeout(timeout);
       process.exit(0);
@@ -586,7 +602,7 @@ if (telegramToken) {
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
-  void telegramAdapter.start();
+  void adapter.start();
   console.log('PetFish Remote started (Telegram polling)');
 } else {
   console.error('TELEGRAM_BOT_TOKEN not set. Configure .env and restart.');

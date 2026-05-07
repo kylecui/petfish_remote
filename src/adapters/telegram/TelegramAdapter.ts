@@ -1,20 +1,10 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 
-import type { ChatEvent, ChatResponse, ProjectConfig } from '../../types.js';
-import type { TaskQuestionPayload } from '../../protocol/connectorProtocol.js';
+import type { ChatEvent, ChatResponse } from '../../types.js';
+import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
+import { BaseIMAdapter } from '../types.js';
+import type { AdapterDeps, OutboundInteraction } from '../types.js';
 import { telegramContextToChatEvent } from './telegramTypes.js';
-
-export type TelegramEventHandler = (event: ChatEvent) => Promise<void> | void;
-export type QuestionReplyHandler = (questionId: string, answers: string[][]) => void;
-export type PermissionReplyHandler = (permissionId: string, allowed: boolean) => void;
-
-export interface TelegramDeps {
-  listProjects: (userId: string) => ProjectConfig[];
-  getBinding: (chatId: string) => { project_id: string } | undefined;
-  bindProject: (chatId: string, projectId: string) => void;
-  isUserAllowed: (projectId: string, userId: string) => boolean;
-  generateRegistrationToken?: (userId: string) => string;
-}
 
 interface PendingQuestion {
   questionId: string;
@@ -25,18 +15,18 @@ interface PendingQuestion {
   totalQuestions: number;
 }
 
-export class TelegramAdapter {
+export class TelegramAdapter extends BaseIMAdapter {
+  readonly platform = 'telegram' as const;
+
   private readonly bot: Bot<Context>;
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
   private readonly chatToPendingQuestion = new Map<string, string>();
-  private onQuestionReply: QuestionReplyHandler | undefined;
-  private onPermissionReply: PermissionReplyHandler | undefined;
 
   public constructor(
     token: string,
-    private readonly onEvent: TelegramEventHandler,
-    private readonly deps?: TelegramDeps,
+    private readonly deps?: AdapterDeps,
   ) {
+    super();
     this.bot = new Bot<Context>(token);
     this.setupHandlers();
   }
@@ -68,7 +58,7 @@ export class TelegramAdapter {
         const event = telegramContextToChatEvent(ctx);
         if (event) {
           event.text = `/pf ${args}`;
-          await this.onEvent(event);
+          this.emit({ type: 'message', event });
         }
         return;
       }
@@ -142,49 +132,49 @@ export class TelegramAdapter {
     this.bot.callbackQuery('pf:status', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf status');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:stop', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf stop');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:help', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf help');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:new', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf new');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:diff', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf diff');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:commit', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf commit');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:pr', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf pr');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:test', async (ctx) => {
       await ctx.answerCallbackQuery();
       const event = this.syntheticEvent(ctx, '/pf test');
-      if (event) await this.onEvent(event);
+      if (event) this.emit({ type: 'message', event });
     });
 
     this.bot.callbackQuery('pf:back', async (ctx) => {
@@ -236,16 +226,7 @@ export class TelegramAdapter {
       );
 
       if (pending.answers.size >= pending.totalQuestions) {
-        this.pendingQuestions.delete(questionId);
-        this.chatToPendingQuestion.delete(pending.chatId);
-
-        const answers: string[][] = pending.questions.map((_, i) => {
-          return pending.answers.get(i) ?? [];
-        });
-
-        if (this.onQuestionReply) {
-          this.onQuestionReply(questionId, answers);
-        }
+        this.finalizeQuestion(pending);
       }
     });
 
@@ -259,9 +240,7 @@ export class TelegramAdapter {
         { parse_mode: 'Markdown' },
       );
 
-      if (this.onPermissionReply) {
-        this.onPermissionReply(permissionId, allowed);
-      }
+      this.emit({ type: 'permissionReply', event: { permissionId, allowed } });
     });
 
     this.bot.on('callback_query:data', async (ctx) => {
@@ -271,7 +250,7 @@ export class TelegramAdapter {
     this.bot.on('message', async (ctx) => {
       const event = telegramContextToChatEvent(ctx);
       if (!event) return;
-      await this.onEvent(event);
+      this.emit({ type: 'message', event });
     });
   }
 
@@ -287,6 +266,17 @@ export class TelegramAdapter {
       attachments: [],
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private finalizeQuestion(pending: PendingQuestion): void {
+    this.pendingQuestions.delete(pending.questionId);
+    this.chatToPendingQuestion.delete(pending.chatId);
+
+    const answers: string[][] = pending.questions.map((_, i) => {
+      return pending.answers.get(i) ?? [];
+    });
+
+    this.emit({ type: 'questionReply', event: { questionId: pending.questionId, answers } });
   }
 
   public async start(): Promise<void> {
@@ -336,15 +326,56 @@ export class TelegramAdapter {
     await this.bot.api.sendChatAction(id, 'typing').catch(() => {});
   }
 
-  public setQuestionReplyHandler(handler: QuestionReplyHandler): void {
-    this.onQuestionReply = handler;
+  public async sendInteraction(request: OutboundInteraction): Promise<void> {
+    switch (request.type) {
+      case 'question':
+        return this.sendQuestion(request.chatId, request.payload);
+      case 'permission':
+        return this.sendPermission(request.chatId, request.payload);
+    }
   }
 
-  public setPermissionReplyHandler(handler: PermissionReplyHandler): void {
-    this.onPermissionReply = handler;
+  public hasPendingInteraction(chatId: string): boolean {
+    return this.chatToPendingQuestion.has(chatId);
   }
 
-  public async sendQuestion(chatId: string, payload: TaskQuestionPayload): Promise<void> {
+  public handleCustomTextAnswer(chatId: string, text: string): boolean {
+    const questionId = this.chatToPendingQuestion.get(chatId);
+    if (!questionId) return false;
+
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending) return false;
+
+    let targetQi = -1;
+    for (let i = 0; i < pending.totalQuestions; i++) {
+      if (!pending.answers.has(i)) {
+        targetQi = i;
+        break;
+      }
+    }
+
+    if (targetQi === -1) return false;
+
+    pending.answers.set(targetQi, [text]);
+
+    const question = pending.questions[targetQi];
+    const msgId = pending.messageIds[targetQi];
+    if (msgId) {
+      void this.bot.api.editMessageText(
+        Number(chatId), msgId,
+        `✅ *${question.header || question.question}*\nAnswered: *${text}*`,
+        { parse_mode: 'Markdown' },
+      ).catch(() => {});
+    }
+
+    if (pending.answers.size >= pending.totalQuestions) {
+      this.finalizeQuestion(pending);
+    }
+
+    return true;
+  }
+
+  private async sendQuestion(chatId: string, payload: TaskQuestionPayload): Promise<void> {
     const id = Number(chatId);
     if (Number.isNaN(id)) return;
 
@@ -386,78 +417,29 @@ export class TelegramAdapter {
     this.chatToPendingQuestion.set(chatId, payload.questionId);
   }
 
-  public async sendPermission(chatId: string, _taskId: string, permissionId: string, tool: string, input: Record<string, unknown>): Promise<void> {
+  private async sendPermission(chatId: string, payload: TaskPermissionPayload): Promise<void> {
     const id = Number(chatId);
     if (Number.isNaN(id)) return;
 
     const keyboard = new InlineKeyboard()
-      .text('✅ Allow', `perm:${permissionId}:allow`)
-      .text('❌ Deny', `perm:${permissionId}:deny`);
+      .text('✅ Allow', `perm:${payload.permissionId}:allow`)
+      .text('❌ Deny', `perm:${payload.permissionId}:deny`);
 
     let inputSummary = '';
-    if (input['command']) {
-      inputSummary = `\`${String(input['command'])}\``;
-    } else if (input['filePath']) {
-      inputSummary = `file: \`${String(input['filePath'])}\``;
+    if (payload.input['command']) {
+      inputSummary = `\`${String(payload.input['command'])}\``;
+    } else if (payload.input['filePath']) {
+      inputSummary = `file: \`${String(payload.input['filePath'])}\``;
     } else {
-      const keys = Object.keys(input).slice(0, 3);
-      inputSummary = keys.map(k => `${k}: ${JSON.stringify(input[k]).slice(0, 60)}`).join('\n');
+      const keys = Object.keys(payload.input).slice(0, 3);
+      inputSummary = keys.map(k => `${k}: ${JSON.stringify(payload.input[k]).slice(0, 60)}`).join('\n');
     }
 
-    const text = `🔐 *Agent wants to run:*\n\n\`${tool}\`${inputSummary ? `\n${inputSummary}` : ''}`;
+    const text = `🔐 *Agent wants to run:*\n\n\`${payload.tool}\`${inputSummary ? `\n${inputSummary}` : ''}`;
 
     await this.bot.api.sendMessage(id, text, {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
-  }
-
-  public hasPendingQuestion(chatId: string): boolean {
-    return this.chatToPendingQuestion.has(chatId);
-  }
-
-  public handleCustomTextAnswer(chatId: string, text: string): boolean {
-    const questionId = this.chatToPendingQuestion.get(chatId);
-    if (!questionId) return false;
-
-    const pending = this.pendingQuestions.get(questionId);
-    if (!pending) return false;
-
-    let targetQi = -1;
-    for (let i = 0; i < pending.totalQuestions; i++) {
-      if (!pending.answers.has(i)) {
-        targetQi = i;
-        break;
-      }
-    }
-
-    if (targetQi === -1) return false;
-
-    pending.answers.set(targetQi, [text]);
-
-    const question = pending.questions[targetQi];
-    const msgId = pending.messageIds[targetQi];
-    if (msgId) {
-      void this.bot.api.editMessageText(
-        Number(chatId), msgId,
-        `✅ *${question.header || question.question}*\nAnswered: *${text}*`,
-        { parse_mode: 'Markdown' },
-      ).catch(() => {});
-    }
-
-    if (pending.answers.size >= pending.totalQuestions) {
-      this.pendingQuestions.delete(questionId);
-      this.chatToPendingQuestion.delete(chatId);
-
-      const answers: string[][] = pending.questions.map((_, i) => {
-        return pending.answers.get(i) ?? [];
-      });
-
-      if (this.onQuestionReply) {
-        this.onQuestionReply(questionId, answers);
-      }
-    }
-
-    return true;
   }
 }
