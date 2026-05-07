@@ -161,6 +161,11 @@ export class FeishuAdapter extends BaseIMAdapter {
 
     console.log(`[feishu] Message received: chat_id=${chatId} user_id=${userId} message_id=${messageId} text=${JSON.stringify(text)}`);
 
+    if (text.trim() === '/start') {
+      void this.sendStartCard(chatId, userId);
+      return;
+    }
+
     if (text.trim() === '/pf' || text.trim() === '/menu') {
       void this.sendMenuCard(chatId, userId);
       return;
@@ -215,6 +220,9 @@ export class FeishuAdapter extends BaseIMAdapter {
     }
 
     switch (eventKey) {
+      case 'pf_start':
+        void this.sendStartCard(chatId, userId);
+        break;
       case 'pf_menu':
         void this.sendMenuCard(chatId, userId);
         break;
@@ -295,6 +303,52 @@ export class FeishuAdapter extends BaseIMAdapter {
         timestamp: new Date().toISOString(),
       },
     });
+  }
+
+  private async sendStartCard(chatId: string, userId: string): Promise<void> {
+    const fullUserId = `feishu:${userId}`;
+    const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
+
+    let tokenSection: string;
+    if (this.deps?.generateRegistrationToken) {
+      const token = this.deps.generateRegistrationToken(fullUserId);
+      tokenSection =
+        `📖 **Install guide:** ${serverUrl}/docs/install\n\n` +
+        `🔑 **Your token:**\n\`${token}\`\n\n` +
+        '_Token expires in 5 minutes. Supports macOS / Linux / WSL / Windows._';
+    } else {
+      tokenSection = 'Use the control panel to get started.';
+    }
+
+    const card = {
+      header: {
+        title: { tag: 'plain_text', content: '><(((^> PetFish Remote — 胖鱼遥控器' },
+        template: 'blue',
+      },
+      elements: [
+        {
+          tag: 'markdown',
+          content: `Control your opencode sessions from Feishu.\n\n${tokenSection}`,
+        },
+        {
+          tag: 'action',
+          actions: [this.menuButton('🎛️ Control Panel', 'menu')],
+        },
+      ],
+    };
+
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      console.error(`[feishu] sendStartCard error:`, err);
+    }
   }
 
   private async sendMenuCard(chatId: string, userId: string): Promise<void> {
