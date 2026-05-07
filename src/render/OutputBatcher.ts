@@ -91,7 +91,7 @@ export class OutputBatcher {
     this.messageCount++;
 
     try {
-      await this.sendFn(text);
+      await this.sendFn(text, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send batched output for task ${this.taskId}: ${msg}`);
