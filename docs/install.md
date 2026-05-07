@@ -121,6 +121,23 @@ bash scripts/petfish-connect.sh setup --token <new-platform-token>
 bash scripts/petfish-connect.sh setup --token <token> --project-id my-project --force-register
 ```
 
+## Token Types & Re-binding
+
+PetFish Remote uses two distinct tokens. Understanding them prevents common mistakes:
+
+| Token | Source | Lifetime | Format |
+|-------|--------|----------|--------|
+| **One-time setup token** | `/start` in Telegram or Feishu | 5 minutes | 32-character hex string |
+| **Connector token** | Generated during registration | Permanent (until revoked) | Base64url string in `connector.yaml` |
+
+**Important:**
+
+- The `/start` token is a one-time exchange credential. It is consumed during registration and cannot be reused.
+- The `token` field in `connector.yaml` is your persistent connector token — **do not manually edit or replace it**.
+- If you paste a `/start` token into the `token` field of `connector.yaml`, the connector will fail to authenticate. The error message will indicate that you may have used a one-time setup token instead of a connector token.
+- To add a new platform (e.g., Feishu after Telegram), use the standard add-platform flow described above — **never manually edit the token**.
+- To start completely fresh, use `--force-register` which performs a new registration and generates a new connector token.
+
 ## Upgrade
 
 ### Bash (macOS / Linux / WSL)

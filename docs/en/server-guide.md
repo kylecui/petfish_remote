@@ -10,12 +10,50 @@ Self-deploying the PetFish Remote server gives you full control over your data. 
 * nginx
 * A registered domain with an SSL certificate
 * A Telegram Bot Token
+* A Feishu App ID and Secret (if using Feishu)
 
 ## Create a Telegram Bot
 1. Open Telegram and search for `@BotFather`.
 2. Send the `/newbot` command.
 3. Follow the prompts to set a name and username.
 4. Copy the HTTP API token provided by BotFather. Keep this secure.
+
+### Feishu (Lark) Integration
+
+To enable Feishu as a chat platform alongside or instead of Telegram:
+
+1. Go to [Feishu Open Platform](https://open.feishu.cn/) (or [Lark Developer](https://open.larksuite.com/) for international).
+2. Create a new application.
+3. Under "Credentials & Basic Info", copy the **App ID** and **App Secret**.
+4. Enable the bot capability and configure the event subscription URL to `https://your-domain.com/api/feishu/webhook`.
+5. Add the following to your `.env` file:
+
+```env
+FEISHU_APP_ID=cli_xxxxxxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FEISHU_DOMAIN=feishu
+```
+
+The `FEISHU_DOMAIN` field accepts two values:
+* `feishu`: for China mainland (feishu.cn)
+* `lark`: for international (larksuite.com)
+
+Note: You can run Telegram and Feishu simultaneously. If only Feishu env vars are set (no Telegram token), the server runs in Feishu-only mode. If neither is configured, the server exits with an error.
+
+### Architecture: Client vs Server Responsibilities
+
+PetFish Remote separates platform integration (server-side) from AI agent management (client-side):
+
+| Layer | Responsibility | Where |
+|-------|---------------|-------|
+| **Chat Platform Adapters** | Telegram bot, Feishu bot, message rendering, user identity | Server (Bot Server) |
+| **Connector** | WebSocket connection, AI agent lifecycle, project management | Client (your dev machine) |
+| **Registration** | Token exchange, connector identity, platform user binding | Server API (`/api/register`, `/api/add-platform`) |
+
+This means:
+* Adding a new chat platform (e.g. Feishu) requires server-side env vars; clients don't need to change anything.
+* Adding a new AI agent (e.g. Gemini) is client-side only; the server doesn't need to know which agent runs locally.
+* One connector serves all platforms. A user on Telegram and a user on Feishu can control the same projects if both are in the allowed_users list.
 
 ## Installation
 Deploy the server code to your host machine:
@@ -30,7 +68,13 @@ npm run build
 Create a `.env` file in the root directory:
 
 ```env
+# Required: at least one platform must be configured
 TELEGRAM_BOT_TOKEN=abc123def456ghi789jkl012mno345pqr678
+
+# Optional: Feishu/Lark integration
+FEISHU_APP_ID=cli_xxxxxxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FEISHU_DOMAIN=feishu
 ```
 
 ## Configuration Files

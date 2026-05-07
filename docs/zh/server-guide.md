@@ -14,6 +14,7 @@
 - Nginx
 - 独立域名及有效 SSL 证书
 - 有效的 Telegram Bot Token
+- 飞书 App ID 和 App Secret（如使用飞书平台）
 
 ## 3. 获取 Telegram Bot Token
 
@@ -21,7 +22,44 @@
 2. 发送 `/newbot`，按提示设置 Bot 名称和 username。
 3. 成功后，`@BotFather` 会返回一串类似 `123456789:ABCDefghIJKLmnopQRSTuvwxYZ` 的 API Token。请妥善保管。
 
-## 4. 安装部署
+## 4. 飞书（Lark）集成
+
+如需启用飞书作为聊天平台（可与Telegram同时使用）：
+
+1. 访问 [飞书开放平台](https://open.feishu.cn/)（国际版用户访问 [Lark Developer](https://open.larksuite.com/)）。
+2. 创建一个新应用。
+3. 在"凭证与基本信息"中，复制 **App ID** 和 **App Secret**。
+4. 启用机器人能力，配置事件订阅URL为 `https://your-domain.com/api/feishu/webhook`。
+5. 在 `.env` 文件中追加以下配置：
+
+```env
+FEISHU_APP_ID=cli_xxxxxxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FEISHU_DOMAIN=feishu
+```
+
+`FEISHU_DOMAIN` 接受两个值：
+- `feishu` — 中国大陆版（feishu.cn）
+- `lark` — 国际版（larksuite.com）
+
+说明：Telegram和飞书可同时运行。如仅配置飞书环境变量（无Telegram Token），服务器以飞书单平台模式启动。如两个平台均未配置，服务器启动时报错退出。
+
+## 5. 多平台架构：客户端与服务端职责划分
+
+PetFish Remote将平台集成（服务端）与AI Agent管理（客户端）分离：
+
+| 层级 | 职责 | 位置 |
+|------|------|------|
+| **聊天平台适配器** | Telegram Bot、飞书Bot、消息渲染、用户身份 | 服务端（Bot Server） |
+| **Connector** | WebSocket连接、AI Agent生命周期、项目管理 | 客户端（开发机） |
+| **注册服务** | Token交换、Connector身份管理、平台用户绑定 | 服务端API（`/api/register`、`/api/add-platform`） |
+
+这意味着：
+- 新增聊天平台（如飞书）需要在服务端配置环境变量 — 客户端无需做任何改动。
+- 新增AI Agent（如Gemini）是纯客户端操作 — 服务端无需感知本地运行的Agent类型。
+- 一个Connector服务所有平台。Telegram用户和飞书用户可以控制同一组项目，前提是都在allowed_users列表中。
+
+## 6. 安装部署
 
 登录目标服务器，执行以下操作：
 
@@ -36,11 +74,17 @@ npm run build
 
 # 3. 配置环境变量
 cat << EOF > .env
+# 必需：至少配置一个平台
 TELEGRAM_BOT_TOKEN=替换为你的真实Token
+
+# 可选：飞书/Lark集成
+FEISHU_APP_ID=cli_xxxxxxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FEISHU_DOMAIN=feishu
 EOF
 ```
 
-## 5. 配置文件
+## 7. 配置文件
 
 服务端配置文件位于 `config/` 目录，主要包含以下内容：
 
@@ -48,7 +92,7 @@ EOF
 - **projects.yaml**：维护可用项目列表。客户端通过 `/api/register` 动态注册时会自动更新此文件，也可通过文本编辑器手动维护。
 - **users.yaml**：Telegram 用户白名单，定义哪些 Telegram ID 有权连接与控制。
 
-## 6. Systemd 服务
+## 8. Systemd 服务
 
 为保障服务持续运行，需配置 systemd 守护进程。创建文件 `/etc/systemd/system/petfish-server.service`：
 
@@ -78,7 +122,7 @@ sudo systemctl enable petfish-server
 sudo systemctl start petfish-server
 ```
 
-## 7. Nginx 反向代理
+## 9. Nginx 反向代理
 
 配置 Nginx 处理 HTTPS 卸载与 WebSocket 转发。在 `/etc/nginx/sites-available/petfish` 写入以下配置：
 
@@ -121,7 +165,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 8. SSL 证书
+## 10. SSL 证书
 
 推荐使用 certbot 免费签发 Let's Encrypt 证书：
 
@@ -130,7 +174,7 @@ sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d remote.yourdomain.com
 ```
 
-## 9. 自定义域名
+## 11. 自定义域名
 
 服务部署后，需通知所有客户端更改默认通信地址。客户端在安装或启动时，必须声明以下环境变量：
 
@@ -138,7 +182,7 @@ sudo certbot --nginx -d remote.yourdomain.com
 export PETFISH_SERVER_URL="wss://remote.yourdomain.com/ws/connector"
 ```
 
-## 10. 验证部署
+## 12. 验证部署
 
 使用 `curl` 验证服务可用性：
 
@@ -146,7 +190,7 @@ export PETFISH_SERVER_URL="wss://remote.yourdomain.com/ws/connector"
 - **健康检查**：`curl https://remote.yourdomain.com/health`（如配置了监控路由）
 - **安装脚本读取**：`curl https://remote.yourdomain.com/install`
 
-## 11. 升级
+## 13. 升级
 
 服务端升级流程如下：
 
@@ -158,14 +202,14 @@ npm run build
 sudo systemctl restart petfish-server
 ```
 
-## 12. 安全建议
+## 14. 安全建议
 
 1. **Token 安全**：绝对不要将包含 `TELEGRAM_BOT_TOKEN` 的 `.env` 文件提交至代码仓库。
 2. **白名单控制**：严格维护 `config/users.yaml`，拒绝未授权的 Telegram 账号访问。
 3. **防火墙策略**：限制对外暴露的端口，仅开放 80 与 443，后端服务（如 3000）绑定至 `127.0.0.1`。
 4. **Token 轮换**：如怀疑客户端 Token 泄漏，及时在服务端注销相关记录并要求客户端重新注册。
 
-## 13. 故障排查
+## 15. 故障排查
 
 | 常见报错 / 现象 | 可能原因 | 解决方案 |
 | --- | --- | --- |

@@ -317,7 +317,11 @@ export class ConnectorGateway extends EventEmitter {
         }
 
         if (!this.options.auth.verify(payload.connectorId, payload.token)) {
-          this.sendError(ws, 'AUTH_FAILED', 'Invalid connector credentials');
+          const isOneTimeToken = /^[0-9a-f]{32}$/.test(payload.token);
+          const detail = isOneTimeToken
+            ? 'Invalid connector credentials. It looks like you used a one-time setup token (from /start) instead of a connector token. Run the installer again with your /start token to register properly, or check that connector.yaml was generated correctly.'
+            : 'Invalid connector credentials';
+          this.sendError(ws, 'AUTH_FAILED', detail);
           ws.close(4003, 'Auth failed');
           return;
         }
