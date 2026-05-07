@@ -6,7 +6,7 @@
 
 [![Beta](https://img.shields.io/badge/status-beta-blue)](https://remote.petfish.ai)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-green)](https://nodejs.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-gray)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20%2B%20Proprietary-blue)](./LICENSE)
 
 ## Architecture 架构
 
@@ -102,4 +102,13 @@ npm run typecheck  # Type check
 
 ## License
 
-MIT
+This project uses a split license model:
+
+| Component | License | Directories |
+|-----------|---------|-------------|
+| Connector / Protocol | [Apache-2.0](./LICENSE) | `src/connector/`, `src/protocol/`, `src/opencode/`, `scripts/` |
+| Server / Adapters / Runtime | [Proprietary](./LICENSE-SERVER) | `src/server/`, `src/adapters/`, `src/core/`, `src/runtime/`, `src/render/`, `src/storage/` |
+
+Trademarks: See [TRADEMARKS.md](./TRADEMARKS.md).
+
+Copyright 2026 PEtFiSh Contributors.

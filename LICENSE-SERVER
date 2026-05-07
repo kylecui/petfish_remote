@@ -1,0 +1,33 @@
+PetFish Remote — Server Components License
+
+Copyright 2026 PEtFiSh Contributors. All rights reserved.
+
+The following directories and their contents are proprietary and may NOT be
+used, copied, modified, or distributed without explicit written permission
+from the copyright holder:
+
+  src/server/
+  src/adapters/
+  src/core/
+  src/runtime/
+  src/render/
+  src/storage/
+  src/main.ts
+  src/config.ts
+  src/types.ts
+  src/utils/
+
+These components implement the PetFish Remote bot server, IM adapters,
+task runtime, and cloud infrastructure. They are NOT covered by the
+Apache License 2.0 that applies to the connector and protocol components.
+
+For commercial licensing inquiries, contact: kyle@petfish.ai
+
+---
+
+The following directories are licensed under Apache License 2.0 (see LICENSE):
+
+  src/connector/
+  src/protocol/
+  src/opencode/
+  scripts/
