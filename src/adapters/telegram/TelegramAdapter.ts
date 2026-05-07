@@ -4,10 +4,6 @@ import type { ChatEvent, ChatResponse, ProjectConfig } from '../../types.js';
 import type { TaskQuestionPayload } from '../../protocol/connectorProtocol.js';
 import { telegramContextToChatEvent } from './telegramTypes.js';
 
-export function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[\]])/g, '\\$1');
-}
-
 function stripMarkdown(text: string): string {
   return text.replace(/[*_`]/g, '');
 }

@@ -2,11 +2,7 @@ const TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
 const DEFAULT_FLUSH_INTERVAL_MS = 3000;
 const DEFAULT_MAX_BUFFER_SIZE = 3000;
 
-function escapeMd(text: string): string {
-  return text.replace(/([_*`\[\]])/g, '\\$1');
-}
-
-export type SendFn = (text: string) => Promise<void>;
+export type SendFn = (text: string, plain?: boolean) => Promise<void>;
 
 export class OutputBatcher {
   private buffer = '';
@@ -47,9 +43,9 @@ export class OutputBatcher {
     }
 
     const status = exitCode === 0 ? '✅ completed' : '❌ failed';
-    const prefix = this.projectLabel ? `📂 *${escapeMd(this.projectLabel)}* · ` : '';
+    const prefix = this.projectLabel ? `📂 ${this.projectLabel} · ` : '';
     try {
-      await this.sendFn(`${prefix}Task ${escapeMd(this.taskId)} ${status} (${this.totalChars} chars, ${this.messageCount} messages)`);
+      await this.sendFn(`${prefix}Task ${this.taskId} ${status} (${this.totalChars} chars, ${this.messageCount} messages)`, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send completion for task ${this.taskId}: ${msg}`);
@@ -64,9 +60,9 @@ export class OutputBatcher {
       await this.flush();
     }
 
-    const prefix = this.projectLabel ? `📂 *${escapeMd(this.projectLabel)}* · ` : '';
+    const prefix = this.projectLabel ? `📂 ${this.projectLabel} · ` : '';
     try {
-      await this.sendFn(`${prefix}Task ${escapeMd(this.taskId)} ❌ error: ${escapeMd(error)}`);
+      await this.sendFn(`${prefix}Task ${this.taskId} ❌ error: ${error}`, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send error for task ${this.taskId}: ${msg}`);
@@ -87,7 +83,7 @@ export class OutputBatcher {
       : this.buffer;
 
     if (this.firstFlush && this.projectLabel) {
-      text = `📂 *${escapeMd(this.projectLabel)}*\n${text}`;
+      text = `📂 ${this.projectLabel}\n${text}`;
       this.firstFlush = false;
     }
 
