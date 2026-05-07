@@ -18,6 +18,11 @@ export class FeishuAdapter extends BaseIMAdapter {
   private wsClient: InstanceType<typeof lark.WSClient> | undefined;
   private readonly pendingInteractions = new Map<string, string>();
 
+  private readonly recentMessageIds = new Set<string>();
+  private readonly DEDUP_CACHE_SIZE = 200;
+  private readonly dedupQueue: string[] = [];
+  private readonly userChatMap = new Map<string, string>();
+
   public constructor(
     private readonly config: FeishuConfig,
     readonly deps?: AdapterDeps,
@@ -32,13 +37,20 @@ export class FeishuAdapter extends BaseIMAdapter {
   }
 
   public async start(): Promise<void> {
+    this.loadUserChatMap();
+
     const eventDispatcher = new lark.EventDispatcher({}).register({
       'im.message.receive_v1': (data: unknown) => {
         this.handleMessage(data);
       },
+      'im.chat.access_event.bot_p2p_chat_entered_v1': (data: unknown) => {
+        this.handleChatEntered(data);
+      },
+      'application.bot.menu_v6': (data: unknown) => {
+        this.handleBotMenu(data);
+      },
       'card.action.trigger': (data: unknown) => {
-        this.handleCardAction(data);
-        return { toast: { type: 'info', content: '✓' } };
+        return this.handleCardAction(data);
       },
     });
 
@@ -64,14 +76,22 @@ export class FeishuAdapter extends BaseIMAdapter {
 
     const content = JSON.stringify({ text: response.text });
 
-    await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: response.chat_id,
-        msg_type: 'text',
-        content,
-      },
-    });
+    try {
+      const result = await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: response.chat_id,
+          msg_type: 'text',
+          content,
+        },
+      });
+      if (result?.code && result.code !== 0) {
+        console.error(`[feishu] sendMessage failed: code=${result.code} msg=${result.msg}`);
+      }
+    } catch (err) {
+      console.error(`[feishu] sendMessage error for chat_id=${response.chat_id}:`, err);
+      throw err;
+    }
   }
 
   public async sendTyping(chatId: string): Promise<void> {
@@ -92,9 +112,22 @@ export class FeishuAdapter extends BaseIMAdapter {
     return this.pendingInteractions.has(chatId);
   }
 
+  private isDuplicate(messageId: string): boolean {
+    if (!messageId) return false;
+    if (this.recentMessageIds.has(messageId)) return true;
+    this.recentMessageIds.add(messageId);
+    this.dedupQueue.push(messageId);
+    if (this.dedupQueue.length > this.DEDUP_CACHE_SIZE) {
+      const evicted = this.dedupQueue.shift()!;
+      this.recentMessageIds.delete(evicted);
+    }
+    return false;
+  }
+
   private handleMessage(data: unknown): void {
     const msg = data as {
       message?: {
+        message_id?: string;
         chat_id?: string;
         message_type?: string;
         content?: string;
@@ -105,6 +138,12 @@ export class FeishuAdapter extends BaseIMAdapter {
     };
 
     if (!msg?.message?.chat_id || msg.message.message_type !== 'text') return;
+
+    const messageId = msg.message.message_id ?? '';
+    if (this.isDuplicate(messageId)) {
+      console.log(`[feishu] Duplicate message skipped: ${messageId}`);
+      return;
+    }
 
     let text = '';
     try {
@@ -118,6 +157,19 @@ export class FeishuAdapter extends BaseIMAdapter {
 
     const chatId = msg.message.chat_id;
     const userId = msg.sender?.sender_id?.open_id ?? msg.sender?.sender_id?.user_id ?? 'unknown';
+    this.cacheUserChat(userId, chatId);
+
+    console.log(`[feishu] Message received: chat_id=${chatId} user_id=${userId} message_id=${messageId} text=${JSON.stringify(text)}`);
+
+    if (text.trim() === '/pf' || text.trim() === '/menu') {
+      void this.sendMenuCard(chatId, userId);
+      return;
+    }
+
+    if (text.trim() === '/pf list') {
+      void this.sendProjectListCard(chatId, userId);
+      return;
+    }
 
     this.emit({
       type: 'message',
@@ -126,7 +178,7 @@ export class FeishuAdapter extends BaseIMAdapter {
         chat_id: chatId,
         user_id: userId,
         username: '',
-        message_id: '',
+        message_id: messageId,
         text,
         attachments: [],
         timestamp: new Date().toISOString(),
@@ -134,17 +186,70 @@ export class FeishuAdapter extends BaseIMAdapter {
     });
   }
 
-  private handleCardAction(data: unknown): void {
+  private handleChatEntered(data: unknown): void {
+    const event = data as {
+      chat_id?: string;
+      operator_id?: { open_id?: string };
+    };
+    const chatId = event?.chat_id;
+    const userId = event?.operator_id?.open_id;
+    if (chatId && userId) {
+      this.cacheUserChat(userId, chatId);
+    }
+  }
+
+  private handleBotMenu(data: unknown): void {
+    const event = data as {
+      event_key?: string;
+      operator?: { operator_id?: { open_id?: string } };
+    };
+
+    const eventKey = event?.event_key;
+    const userId = event?.operator?.operator_id?.open_id ?? '';
+    if (!eventKey || !userId) return;
+
+    const chatId = this.userChatMap.get(userId) ?? '';
+    if (!chatId) {
+      console.warn('[feishu] bot_menu: no chat_id cached for user, ignoring', userId);
+      return;
+    }
+
+    switch (eventKey) {
+      case 'pf_menu':
+        void this.sendMenuCard(chatId, userId);
+        break;
+      case 'pf_list':
+        void this.sendProjectListCard(chatId, userId);
+        break;
+      default: {
+        // Bot menu event_keys are prefixed with "pf_" (e.g. pf_status, pf_new)
+        // Strip the prefix to get the actual command name
+        const command = eventKey.startsWith('pf_') ? eventKey.slice(3) : eventKey;
+        this.emitSyntheticCommand(chatId, userId, `/pf ${command}`);
+        break;
+      }
+    }
+  }
+
+  public handleCardAction(data: unknown): Record<string, unknown> {
     const action = data as {
       action?: { value?: Record<string, string> };
       open_chat_id?: string;
+      open_message_id?: string;
       operator?: { open_id?: string };
     };
 
-    if (!action?.action?.value) return;
+    if (!action?.action?.value) return {};
     const value = action.action.value;
-    const chatId = action.open_chat_id ?? '';
     const userId = action.operator?.open_id ?? '';
+    const chatId = action.open_chat_id || this.userChatMap.get(userId) || '';
+
+    console.log(`[feishu] cardAction: userId=${userId} chatId=${chatId} open_chat_id=${action.open_chat_id ?? 'undefined'} value=${JSON.stringify(value)}`);
+
+    if (!chatId) {
+      console.warn('[feishu] cardAction: cannot resolve chat_id, skipping');
+      return {};
+    }
 
     if (value['type'] === 'question_answer') {
       const questionId = value['questionId'] ?? '';
@@ -162,9 +267,166 @@ export class FeishuAdapter extends BaseIMAdapter {
         type: 'permissionReply',
         event: { permissionId, allowed },
       });
+    } else if (value['type'] === 'menu_action') {
+      const command = value['command'] ?? '';
+      if (command === 'list') {
+        void this.sendProjectListCard(chatId, userId);
+      } else if (command.startsWith('use:')) {
+        const projectId = command.slice(4);
+        this.emitSyntheticCommand(chatId, userId, `/pf use ${projectId}`);
+      } else if (command) {
+        this.emitSyntheticCommand(chatId, userId, `/pf ${command}`);
+      }
     }
+    return { toast: { type: 'info', content: '✓' } };
+  }
+
+  private emitSyntheticCommand(chatId: string, userId: string, text: string): void {
+    this.emit({
+      type: 'message',
+      event: {
+        platform: 'feishu',
+        chat_id: chatId,
+        user_id: userId,
+        username: '',
+        message_id: '',
+        text,
+        attachments: [],
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+
+  private async sendMenuCard(chatId: string, userId: string): Promise<void> {
+    const binding = this.deps?.getBinding('feishu', chatId);
+    const boundText = binding
+      ? `Bound to: **${binding.project_id}**\nSend any message to ask.`
+      : 'No project bound yet. Tap Projects to start.';
+
+    const card = {
+      header: {
+        title: { tag: 'plain_text', content: '><(((^> PetFish Remote' },
+        template: 'blue',
+      },
+      elements: [
+        { tag: 'markdown', content: boundText },
+        {
+          tag: 'action',
+          actions: [
+            this.menuButton('📋 Projects', 'list'),
+            this.menuButton('📊 Status', 'status'),
+          ],
+        },
+        {
+          tag: 'action',
+          actions: [
+            this.menuButton('🔄 New', 'new'),
+            this.menuButton('🛑 Stop', 'stop'),
+          ],
+        },
+        {
+          tag: 'action',
+          actions: [
+            this.menuButton('📝 Diff', 'diff'),
+            this.menuButton('✅ Commit', 'commit'),
+            this.menuButton('🚀 PR', 'pr'),
+          ],
+        },
+        {
+          tag: 'action',
+          actions: [
+            this.menuButton('🧪 Test', 'test'),
+            this.menuButton('❓ Help', 'help'),
+          ],
+        },
+      ],
+    };
 
     void userId;
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      console.error(`[feishu] sendMenuCard error:`, err);
+    }
+  }
+
+  private async sendProjectListCard(chatId: string, userId: string): Promise<void> {
+    const fullUserId = `feishu:${userId}`;
+    const projects = this.deps?.listProjects(fullUserId) ?? [];
+
+    if (projects.length === 0) {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'text',
+          content: JSON.stringify({ text: 'No projects available.' }),
+        },
+      });
+      return;
+    }
+
+    const binding = this.deps?.getBinding('feishu', chatId);
+    const buttons = projects.map((p) => {
+      const prefix = binding?.project_id === p.id ? '✅ ' : '';
+      return this.menuButton(`${prefix}${p.id}`, `use:${p.id}`);
+    });
+
+    const card = {
+      header: {
+        title: { tag: 'plain_text', content: 'Select a project' },
+        template: 'blue',
+      },
+      elements: [
+        {
+          tag: 'action',
+          actions: buttons,
+        },
+      ],
+    };
+
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      console.error(`[feishu] sendProjectListCard error:`, err);
+    }
+  }
+
+  private loadUserChatMap(): void {
+    const stored = this.deps?.getAllUserChatIds?.('feishu');
+    if (stored) {
+      for (const [userId, chatId] of stored) {
+        this.userChatMap.set(userId, chatId);
+      }
+    }
+  }
+
+  private cacheUserChat(userId: string, chatId: string): void {
+    this.userChatMap.set(userId, chatId);
+    this.deps?.setUserChatId?.('feishu', userId, chatId);
+  }
+
+  private menuButton(label: string, command: string): Record<string, unknown> {
+    return {
+      tag: 'button',
+      text: { tag: 'plain_text', content: label },
+      type: 'default',
+      value: { type: 'menu_action', command },
+    };
   }
 
   private async sendQuestion(chatId: string, payload: TaskQuestionPayload): Promise<void> {
@@ -183,13 +445,13 @@ export class FeishuAdapter extends BaseIMAdapter {
         tag: 'button',
         text: { tag: 'plain_text', content: opt.label },
         type: 'primary',
-        value: JSON.stringify({
+        value: {
           type: 'question_answer',
           questionId: payload.questionId,
-          questionIndex: qi,
-          optionIndex: oi,
+          questionIndex: String(qi),
+          optionIndex: String(oi),
           answer: opt.label,
-        }),
+        },
       }));
 
       elements.push({
@@ -199,12 +461,11 @@ export class FeishuAdapter extends BaseIMAdapter {
     }
 
     const card = {
-      schema: '2.0',
       header: {
         title: { tag: 'plain_text', content: 'Agent Question' },
         template: 'blue',
       },
-      body: { elements },
+      elements,
     };
 
     await this.client.im.message.create({
@@ -231,44 +492,41 @@ export class FeishuAdapter extends BaseIMAdapter {
     }
 
     const card = {
-      schema: '2.0',
       header: {
         title: { tag: 'plain_text', content: 'Permission Request' },
         template: 'orange',
       },
-      body: {
-        elements: [
-          {
-            tag: 'markdown',
-            content: `🔐 **Agent wants to run:**\n\n\`${payload.tool}\`${inputSummary ? `\n${inputSummary}` : ''}`,
-          },
-          {
-            tag: 'action',
-            actions: [
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: '✅ Allow' },
-                type: 'primary',
-                value: JSON.stringify({
-                  type: 'permission_reply',
-                  permissionId: payload.permissionId,
-                  allowed: 'true',
-                }),
+      elements: [
+        {
+          tag: 'markdown',
+          content: `🔐 **Agent wants to run:**\n\n\`${payload.tool}\`${inputSummary ? `\n${inputSummary}` : ''}`,
+        },
+        {
+          tag: 'action',
+          actions: [
+            {
+              tag: 'button',
+              text: { tag: 'plain_text', content: '✅ Allow' },
+              type: 'primary',
+              value: {
+                type: 'permission_reply',
+                permissionId: payload.permissionId,
+                allowed: 'true',
               },
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: '❌ Deny' },
-                type: 'danger',
-                value: JSON.stringify({
-                  type: 'permission_reply',
-                  permissionId: payload.permissionId,
-                  allowed: 'false',
-                }),
+            },
+            {
+              tag: 'button',
+              text: { tag: 'plain_text', content: '❌ Deny' },
+              type: 'danger',
+              value: {
+                type: 'permission_reply',
+                permissionId: payload.permissionId,
+                allowed: 'false',
               },
-            ],
-          },
-        ],
-      },
+            },
+          ],
+        },
+      ],
     };
 
     await this.client.im.message.create({

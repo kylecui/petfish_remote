@@ -36,6 +36,9 @@ export interface AdapterDeps {
   bindProject: (platform: Platform, chatId: string, projectId: string) => void;
   isUserAllowed: (projectId: string, userId: string) => boolean;
   generateRegistrationToken?: (userId: string) => string;
+  getUserChatId?: (platform: Platform, userId: string) => string | undefined;
+  setUserChatId?: (platform: Platform, userId: string, chatId: string) => void;
+  getAllUserChatIds?: (platform: Platform) => Map<string, string>;
 }
 
 // ─── IMAdapter Interface ────────────────────────────────────────────────────

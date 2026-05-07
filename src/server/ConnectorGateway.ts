@@ -58,6 +58,11 @@ export class ConnectorGateway extends EventEmitter {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/webhook/card') {
+      this.handleWebhookCard(req, res);
+      return;
+    }
+
     if (req.url === '/install' || req.url === '/install.sh') {
       this.handleInstallScript(req, res);
       return;
@@ -71,6 +76,34 @@ export class ConnectorGateway extends EventEmitter {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ service: 'petfish-remote-ws', version: SERVER_VERSION, connectors: this.registry.list().length }));
+  }
+
+  private cardActionHandler: ((payload: unknown) => unknown) | undefined;
+
+  public setCardActionHandler(handler: (payload: unknown) => unknown): void {
+    this.cardActionHandler = handler;
+  }
+
+  private handleWebhookCard(req: IncomingMessage, res: ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        console.log('[webhook/card] raw payload keys:', Object.keys(payload), 'open_chat_id:', payload.open_chat_id, 'operator:', JSON.stringify(payload.operator));
+        if (payload.type === 'url_verification') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ challenge: payload.challenge }));
+          return;
+        }
+        const result = this.cardActionHandler?.(payload) ?? {};
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid json' }));
+      }
+    });
   }
 
   private handleRegisterApi(req: IncomingMessage, res: ServerResponse): void {

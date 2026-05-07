@@ -78,6 +78,14 @@ export class Storage {
         registered_at TEXT NOT NULL,
         PRIMARY KEY (project_id, user_id)
       );
+
+      CREATE TABLE IF NOT EXISTS user_chat_map (
+        platform TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (platform, user_id)
+      );
     `;
 
     this.db.exec(schema);
@@ -187,6 +195,32 @@ export class Storage {
       .prepare('SELECT platform, chat_id FROM sessions WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1')
       .get(projectId) as { platform: string; chat_id: string } | undefined;
     return row ? { platform: row.platform as Platform, chatId: row.chat_id } : undefined;
+  }
+
+  public setUserChatId(platform: Platform, userId: string, chatId: string): void {
+    this.db.prepare(`
+      INSERT INTO user_chat_map (platform, user_id, chat_id, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(platform, user_id) DO UPDATE SET
+        chat_id = excluded.chat_id,
+        updated_at = excluded.updated_at
+    `).run(platform, userId, chatId, new Date().toISOString());
+  }
+
+  public getUserChatId(platform: Platform, userId: string): string | undefined {
+    const row = this.db.prepare('SELECT chat_id FROM user_chat_map WHERE platform = ? AND user_id = ?')
+      .get(platform, userId) as { chat_id: string } | undefined;
+    return row?.chat_id;
+  }
+
+  public getAllUserChatIds(platform: Platform): Map<string, string> {
+    const rows = this.db.prepare('SELECT user_id, chat_id FROM user_chat_map WHERE platform = ?')
+      .all(platform) as Array<{ user_id: string; chat_id: string }>;
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      map.set(row.user_id, row.chat_id);
+    }
+    return map;
   }
 
   public createTask(task: TaskRecord): void {

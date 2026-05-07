@@ -158,12 +158,12 @@ if (config.gateway.enabled) {
       if (target) {
         const targetAdapter = adapterMap.get(target.platform);
         if (targetAdapter) {
-          void targetAdapter.sendMessage({
+          targetAdapter.sendMessage({
             platform: target.platform,
             chat_id: target.chatId,
             message_type: 'text',
             text: `⚠️ Connector \`${connectorId}\` disconnected. It may be restarting — replies paused until reconnect.`,
-          });
+          }).catch((err) => console.error(`[connector] Failed to send disconnect notice:`, err));
         }
       }
     }
@@ -173,12 +173,12 @@ if (config.gateway.enabled) {
     if (adminChatId) {
       const adminAdapter = adapterMap.get(adminPlatform);
       if (adminAdapter) {
-        void adminAdapter.sendMessage({
+        adminAdapter.sendMessage({
           platform: adminPlatform,
           chat_id: adminChatId,
           message_type: 'text',
           text: `Connector ${connectorId} is now ${status}`,
-        });
+        }).catch(() => {});
       }
     }
   });
@@ -233,13 +233,13 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
   const eventAdapter = getAdapterForEvent(event);
   if (eventAdapter) {
     void eventAdapter.sendTyping(event.chat_id);
-    void eventAdapter.sendMessage({
+    eventAdapter.sendMessage({
       platform: event.platform,
       chat_id: event.chat_id,
       reply_to: event.message_id,
       message_type: 'markdown',
       text: `📂 *${projectId}* · Task \`${task.task_id}\` accepted`,
-    });
+    }).catch((err) => console.error(`[dispatch] Failed to send acceptance message:`, err));
   }
 
   const batcher = new OutputBatcher(
@@ -252,6 +252,8 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
         reply_to: event.message_id,
         message_type: plain ? 'text' : 'markdown',
         text,
+      }).catch((err) => {
+        console.error(`[batcher] Failed to send output to ${event.platform}:${event.chat_id}:`, err);
       });
     },
     task.task_id,
@@ -587,6 +589,9 @@ const adapterDeps: AdapterDeps = {
   generateRegistrationToken: registrationService
     ? (userId: string) => registrationService!.generateToken(userId)
     : undefined,
+  getUserChatId: (platform: Platform, userId: string) => storage.getUserChatId(platform, userId),
+  setUserChatId: (platform: Platform, userId: string, chatId: string) => storage.setUserChatId(platform, userId, chatId),
+  getAllUserChatIds: (platform: Platform) => storage.getAllUserChatIds(platform),
 };
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -605,6 +610,9 @@ if (feishuAppId && feishuAppSecret) {
   adapterMap.set('feishu', feishuAdapter);
   feishuAdapter.onEvent(handleAdapterEvent);
   if (!adapter) adapter = feishuAdapter;
+  if (gateway) {
+    gateway.setCardActionHandler((payload) => feishuAdapter.handleCardAction(payload));
+  }
 }
 
 if (adapterMap.size === 0) {

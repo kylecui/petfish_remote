@@ -42,7 +42,7 @@ export class OpenCodeBridge implements AgentBridge {
   private idleDrainTimer: NodeJS.Timeout | undefined;
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private readonly idleConfirmMs = 1500;
-  private readonly settleGraceMs = 300_000;
+  private readonly settleGraceMs = 8_000;
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
@@ -161,6 +161,10 @@ export class OpenCodeBridge implements AgentBridge {
 
   private isSessionBusy(): boolean {
     if (this.pending.size > 0) return true;
+    return this.isSessionBusyByStatus();
+  }
+
+  private isSessionBusyByStatus(): boolean {
     try {
       const raw = execSync(
         `curl -s --max-time 5 http://127.0.0.1:${this.opencodePort}/session/status`,
@@ -302,12 +306,19 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     try {
-      execSync(
+      const raw = execSync(
         `curl -s --max-time 5 -X POST http://127.0.0.1:${this.opencodePort}/session`,
         { encoding: 'utf-8', timeout: 8000 },
       );
+      const created = JSON.parse(raw) as { id?: string };
+      if (created.id) {
+        execSync(
+          `curl -s --max-time 5 -X POST -H "Content-Type: application/json" -d '${JSON.stringify({ sessionID: created.id })}' http://127.0.0.1:${this.opencodePort}/tui/select-session`,
+          { encoding: 'utf-8', timeout: 8000 },
+        );
+      }
       this.rediscover();
-      console.log(`[OpenCodeBridge] new session created, now on session=${this.sessionId}`);
+      console.log(`[OpenCodeBridge] new session created and selected, now on session=${this.sessionId}`);
     } catch (err) {
       console.warn(`[OpenCodeBridge] requestNewSession failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -588,12 +599,15 @@ export class OpenCodeBridge implements AgentBridge {
       const entry = this.pending.get(taskId);
       if (!entry || entry.settled) return;
 
-      if (this.isSessionBusy()) {
-        console.log(`[OpenCodeBridge] safety settle deferred — session still busy task=${taskId}`);
+      // Only check HTTP session status — NOT pending.size (which would deadlock
+      // since this task is pending and we're trying to settle it).
+      if (this.isSessionBusyByStatus()) {
+        console.log(`[OpenCodeBridge] safety settle deferred — session still busy (HTTP) task=${taskId}`);
+        this.scheduleSettleOnComplete(taskId);
         return;
       }
 
-      console.log(`[OpenCodeBridge] safety settle firing task=${taskId} (${this.settleGraceMs / 1000}s timeout)`);
+      console.log(`[OpenCodeBridge] settle firing task=${taskId} (${this.settleGraceMs / 1000}s after completion signal)`);
       entry.settled = true;
       this.cleanup(taskId);
       entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
