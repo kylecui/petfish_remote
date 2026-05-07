@@ -4,10 +4,6 @@ import type { ChatEvent, ChatResponse, ProjectConfig } from '../../types.js';
 import type { TaskQuestionPayload } from '../../protocol/connectorProtocol.js';
 import { telegramContextToChatEvent } from './telegramTypes.js';
 
-function stripMarkdown(text: string): string {
-  return text.replace(/[*_`]/g, '');
-}
-
 export type TelegramEventHandler = (event: ChatEvent) => Promise<void> | void;
 export type QuestionReplyHandler = (questionId: string, answers: string[][]) => void;
 export type PermissionReplyHandler = (permissionId: string, allowed: boolean) => void;
@@ -325,8 +321,7 @@ export class TelegramAdapter {
       });
     } catch (err) {
       if (parseMode && err instanceof Error && err.message.includes("can't parse entities")) {
-        const plain = stripMarkdown(response.text);
-        await this.bot.api.sendMessage(chatId, plain, {
+        await this.bot.api.sendMessage(chatId, response.text, {
           reply_parameters: replyParams,
         });
         return;
