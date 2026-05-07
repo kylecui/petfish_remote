@@ -46,15 +46,27 @@ async function start() {
 
   const client = new ConnectorClient(config!, executor, bridges);
 
-  process.once('SIGINT', () => {
-    console.log('Shutting down connector...');
+  const shutdown = (reason: string) => {
+    console.log(`Shutting down connector: ${reason}`);
     for (const bridge of bridges.values()) bridge.stop();
     client.stop();
+  };
+
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+  process.on('uncaughtException', (err) => {
+    console.error(`[FATAL] Uncaught exception: ${err.message}`);
+    console.error(err.stack);
+    shutdown(`uncaughtException: ${err.message}`);
+    process.exit(1);
   });
-  process.once('SIGTERM', () => {
-    console.log('Shutting down connector...');
-    for (const bridge of bridges.values()) bridge.stop();
-    client.stop();
+
+  process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    console.error(`[FATAL] Unhandled rejection: ${msg}`);
+    shutdown(`unhandledRejection: ${msg}`);
+    process.exit(1);
   });
 
   console.log(`PetFish Connector starting (${config!.connectorId}, ${config!.projects.length} projects, ${bridges.size} bridges)`);

@@ -156,5 +156,16 @@ export class RemoteRuntime implements RuntimeConnector {
       this.pending.delete(payload.taskId);
       pending.reject(new Error(payload.error));
     });
+
+    this.gateway.on('connector:change', (_connectorId: string, info: unknown) => {
+      if (info) return;
+      for (const [taskId, pending] of this.pending.entries()) {
+        const projectId = pending.command.projectId;
+        if (projectId && !this.gateway.registry.findByProject(projectId)) {
+          this.pending.delete(taskId);
+          pending.reject(new Error(`Connector disconnected (was serving project ${projectId})`));
+        }
+      }
+    });
   }
 }

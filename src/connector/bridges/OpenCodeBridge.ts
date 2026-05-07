@@ -403,6 +403,8 @@ export class OpenCodeBridge implements AgentBridge {
       this.handleSessionIdle(event.properties);
     } else if (event.type === 'session.status') {
       this.handleSessionStatus(event.properties);
+    } else if (event.type === 'session.error') {
+      this.handleSessionError(event.properties);
     } else if (event.type === 'question.asked') {
       this.handleQuestionAsked(event.properties);
     } else if (event.type === 'permission.asked') {
@@ -412,7 +414,7 @@ export class OpenCodeBridge implements AgentBridge {
 
   private handleMessageUpdated(props: Record<string, unknown> | undefined): void {
     if (!props) return;
-    const info = props['info'] as { id?: string; role?: string; parentID?: string; time?: { completed?: number } } | undefined;
+    const info = props['info'] as { id?: string; role?: string; parentID?: string; error?: unknown; time?: { completed?: number } } | undefined;
     if (!info) return;
 
     if (info.role === 'user' && info.id && this.pendingCorrelation) {
@@ -428,6 +430,19 @@ export class OpenCodeBridge implements AgentBridge {
 
     if (info.role === 'assistant' && info.id && info.time?.completed) {
       this.lastCompletedAssistantId = info.id;
+    }
+
+    if (info.role === 'assistant' && info.error) {
+      const errorMsg = this.extractErrorMessage(info.error);
+      let taskId = info.parentID ? this.messageToTask.get(info.parentID) : undefined;
+      if (!taskId && this.pending.size === 1) {
+        const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
+        if (!onlyEntry.settled) taskId = onlyTaskId;
+      }
+      if (taskId) {
+        this.settle(taskId, errorMsg);
+        return;
+      }
     }
 
     if (info.role === 'assistant' && info.parentID) {
@@ -510,6 +525,13 @@ export class OpenCodeBridge implements AgentBridge {
       if (!entry.settled) {
         entry.settled = true;
         this.cleanup(taskId);
+        if (entry.stdout.length === 0) {
+          const errorMsg = this.fetchLastError(entry.assistantMessageId);
+          if (errorMsg) {
+            entry.onFail(taskId, errorMsg);
+            continue;
+          }
+        }
         entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
       }
     }
@@ -528,6 +550,33 @@ export class OpenCodeBridge implements AgentBridge {
         this.cancelSettleTimer(taskId);
       }
     }
+  }
+
+  private handleSessionError(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const sessionID = props['sessionID'] as string | undefined;
+    if (sessionID && sessionID !== this.sessionId) return;
+    const error = props['error'] as unknown;
+    const errorMsg = this.extractErrorMessage(error);
+
+    for (const [taskId, entry] of this.pending) {
+      if (!entry.settled) {
+        this.settle(taskId, errorMsg);
+      }
+    }
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    if (!error) return 'Unknown error';
+    if (typeof error === 'string') return error;
+    if (typeof error === 'object') {
+      const e = error as { name?: string; data?: { message?: string; statusCode?: number }; message?: string };
+      const name = e.name ?? 'Error';
+      const message = e.data?.message ?? e.message ?? '';
+      const status = e.data?.statusCode ? ` (HTTP ${e.data.statusCode})` : '';
+      return `${name}: ${message}${status}`.trim() || 'Unknown error';
+    }
+    return String(error);
   }
 
   private scheduleSettleOnComplete(taskId: string): void {
@@ -828,6 +877,40 @@ export class OpenCodeBridge implements AgentBridge {
       return undefined;
     } catch (e) {
       console.log(`[OpenCodeBridge] discoverLastAssistantMessage failed: ${e instanceof Error ? e.message : String(e)}`);
+      return undefined;
+    }
+  }
+
+  private fetchLastError(assistantMessageId: string | undefined): string | undefined {
+    if (!this.opencodePort || !this.sessionId) return undefined;
+    try {
+      const raw = execSync(
+        `curl -s --max-time 5 http://127.0.0.1:${this.opencodePort}/session/${this.sessionId}/message`,
+        { encoding: 'utf-8', timeout: 8000, maxBuffer: 10 * 1024 * 1024 },
+      );
+      const messages = JSON.parse(raw) as Array<{
+        info?: { id?: string; role?: string; error?: string; metadata?: { error?: string } };
+        parts?: Array<{ type?: string; text?: string }>;
+      }>;
+
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.info?.role !== 'assistant') continue;
+        if (assistantMessageId && msg.info.id !== assistantMessageId) continue;
+
+        if (msg.info.error) return msg.info.error;
+        if (msg.info.metadata?.error) return msg.info.metadata.error;
+
+        const textParts = msg.parts?.filter(p => p.type === 'text' && p.text) ?? [];
+        for (const part of textParts) {
+          if (part.text && /error|failed|exception/i.test(part.text) && part.text.length < 500) {
+            return part.text;
+          }
+        }
+        break;
+      }
+      return undefined;
+    } catch {
       return undefined;
     }
   }
