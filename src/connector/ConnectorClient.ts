@@ -108,9 +108,20 @@ export class ConnectorClient {
     });
 
     this.ws.on('close', (code, reason) => {
-      console.log(`Disconnected: ${code} ${reason.toString()}`);
+      const reasonStr = reason.toString();
+      console.log(`Disconnected: ${code} ${reasonStr}`);
       this.clearHeartbeat();
       this.clearClientPing();
+
+      // Don't reconnect if replaced by another connection — prevents reconnect loop
+      // when multiple connector processes share the same connectorId.
+      if (reasonStr === 'Replaced by new connection') {
+        console.error('Another connector took over this connectorId. Shutting down to avoid reconnect loop.');
+        console.error('If this is unexpected, check for duplicate connector processes: pgrep -af "connector/main.js"');
+        this.stopped = true;
+        return;
+      }
+
       this.scheduleReconnect();
     });
 
@@ -130,6 +141,9 @@ export class ConnectorClient {
 
   private scheduleReconnect(): void {
     if (this.stopped) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
     console.log(`Reconnecting in ${this.reconnectDelay}ms...`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.config.maxReconnectIntervalMs);

@@ -170,26 +170,34 @@ do_stop() {
   local pid_file
   pid_file="$(get_pid_file "$config_path")"
 
-  if ! is_running "$pid_file"; then
-    echo "Connector is not running."
-    if pgrep -f "dist/connector/main.js" > /dev/null 2>&1; then
-      echo "WARNING: Found orphaned connector process(es):"
-      pgrep -af "dist/connector/main.js"
-      echo "Kill manually with: pkill -f 'dist/connector/main.js'"
+  if is_running "$pid_file"; then
+    local pid
+    pid="$(cat "$pid_file")"
+    echo "Stopping connector (PID $pid)..."
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
     fi
-    return 0
+    rm -f "$pid_file"
+    echo "Stopped."
+  else
+    echo "Connector is not running (no tracked PID)."
+    rm -f "$pid_file"
   fi
 
-  local pid
-  pid="$(cat "$pid_file")"
-  echo "Stopping connector (PID $pid)..."
-  kill "$pid" 2>/dev/null || true
-  sleep 1
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -9 "$pid" 2>/dev/null || true
+  local orphans
+  orphans="$(pgrep -f "dist/connector/main.js" 2>/dev/null || true)"
+  if [ -n "$orphans" ]; then
+    echo "Killing orphan connector process(es): $orphans"
+    echo "$orphans" | xargs kill 2>/dev/null || true
+    sleep 1
+    local remaining
+    remaining="$(pgrep -f "dist/connector/main.js" 2>/dev/null || true)"
+    if [ -n "$remaining" ]; then
+      echo "$remaining" | xargs kill -9 2>/dev/null || true
+    fi
   fi
-  rm -f "$pid_file"
-  echo "Stopped."
 }
 
 do_status() {
