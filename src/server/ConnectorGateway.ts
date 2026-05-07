@@ -90,13 +90,14 @@ export class ConnectorGateway extends EventEmitter {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        console.log('[webhook/card] raw payload keys:', Object.keys(payload), 'open_chat_id:', payload.open_chat_id, 'operator:', JSON.stringify(payload.operator));
         if (payload.type === 'url_verification') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ challenge: payload.challenge }));
           return;
         }
-        const result = this.cardActionHandler?.(payload) ?? {};
+        const eventData = payload.event ?? payload;
+        console.log('[webhook/card] operator:', eventData.operator?.open_id, 'chat:', eventData.open_chat_id);
+        const result = this.cardActionHandler?.(eventData) ?? {};
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch {
