@@ -32,8 +32,8 @@ export type Unsubscribe = () => void;
 
 export interface AdapterDeps {
   listProjects: (userId: string) => ProjectConfig[];
-  getBinding: (chatId: string) => { project_id: string } | undefined;
-  bindProject: (chatId: string, projectId: string) => void;
+  getBinding: (platform: Platform, chatId: string) => { project_id: string } | undefined;
+  bindProject: (platform: Platform, chatId: string, projectId: string) => void;
   isUserAllowed: (projectId: string, userId: string) => boolean;
   generateRegistrationToken?: (userId: string) => string;
 }

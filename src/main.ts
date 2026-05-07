@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
+import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
 import type { IMAdapter, AdapterDeps, AdapterInboundEvent } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
@@ -21,7 +22,7 @@ import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
-import type { ChatEvent, ChatResponse, ExecutionMode } from './types.js';
+import type { ChatEvent, ChatResponse, ExecutionMode, Platform } from './types.js';
 
 const configDir = process.env.PETFISH_CONFIG_DIR ?? './config';
 const runtimeDir = process.env.PETFISH_RUNTIME_DIR ?? './.runtime';
@@ -54,12 +55,12 @@ for (const rt of config.runtimes) {
 
 let gateway: ConnectorGateway | undefined;
 let registrationService: RegistrationService | undefined;
-const taskIdToChatId = new Map<string, string>();
-const connectorIdToChatId = new Map<string, string>();
+const taskIdToChatId = new Map<string, { platform: Platform; chatId: string }>();
+const connectorIdToChatId = new Map<string, { platform: Platform; chatId: string }>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 
-function resolveChatId(taskId: string, connectorId: string): string | undefined {
+function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
   if (fromTask) return fromTask;
 
@@ -70,8 +71,8 @@ function resolveChatId(taskId: string, connectorId: string): string | undefined 
   const connInfo = gateway.registry.get(connectorId);
   if (connInfo) {
     for (const proj of connInfo.projects) {
-      const chatId = storage.getChatIdByProject(proj.id);
-      if (chatId) return chatId;
+      const result = storage.getChatIdByProject(proj.id);
+      if (result) return result;
     }
   }
 
@@ -149,54 +150,63 @@ if (config.gateway.enabled) {
       }
     }
 
-    if (!adapter) return;
+    if (adapterMap.size === 0) return;
     const status = info ? '🟢 online' : '🔴 offline';
 
     if (!info) {
-      const userChatId = connectorIdToChatId.get(connectorId);
-      if (userChatId) {
-        void adapter.sendMessage({
-          platform: adapter.platform,
-          chat_id: userChatId,
-          message_type: 'text',
-          text: `⚠️ Connector \`${connectorId}\` disconnected. It may be restarting — replies paused until reconnect.`,
-        });
+      const target = connectorIdToChatId.get(connectorId);
+      if (target) {
+        const targetAdapter = adapterMap.get(target.platform);
+        if (targetAdapter) {
+          void targetAdapter.sendMessage({
+            platform: target.platform,
+            chat_id: target.chatId,
+            message_type: 'text',
+            text: `⚠️ Connector \`${connectorId}\` disconnected. It may be restarting — replies paused until reconnect.`,
+          });
+        }
       }
     }
 
     const adminChatId = process.env.PETFISH_ADMIN_CHAT_ID;
+    const adminPlatform = (process.env.PETFISH_ADMIN_PLATFORM ?? 'telegram') as Platform;
     if (adminChatId) {
-      void adapter.sendMessage({
-        platform: adapter.platform,
-        chat_id: adminChatId,
-        message_type: 'text',
-        text: `Connector ${connectorId} is now ${status}`,
-      });
+      const adminAdapter = adapterMap.get(adminPlatform);
+      if (adminAdapter) {
+        void adminAdapter.sendMessage({
+          platform: adminPlatform,
+          chat_id: adminChatId,
+          message_type: 'text',
+          text: `Connector ${connectorId} is now ${status}`,
+        });
+      }
     }
   });
 
   gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
-    if (!adapter) return;
     questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
-    const chatId = resolveChatId(payload.taskId, connectorId);
-    if (!chatId) {
+    const target = resolveChatId(payload.taskId, connectorId);
+    if (!target) {
       console.warn(`[question] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
     }
-    console.log(`[question] Relaying question ${payload.questionId} to chat ${chatId}`);
-    void adapter.sendInteraction({ type: 'question', chatId, payload });
+    const targetAdapter = adapterMap.get(target.platform);
+    if (!targetAdapter) return;
+    console.log(`[question] Relaying question ${payload.questionId} to ${target.platform}:${target.chatId}`);
+    void targetAdapter.sendInteraction({ type: 'question', chatId: target.chatId, payload });
   });
 
   gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
-    if (!adapter) return;
     permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
-    const chatId = resolveChatId(payload.taskId, connectorId);
-    if (!chatId) {
+    const target = resolveChatId(payload.taskId, connectorId);
+    if (!target) {
       console.warn(`[permission] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
       return;
     }
-    console.log(`[permission] Relaying permission ${payload.permissionId} to chat ${chatId}`);
-    void adapter.sendInteraction({ type: 'permission', chatId, payload });
+    const targetAdapter = adapterMap.get(target.platform);
+    if (!targetAdapter) return;
+    console.log(`[permission] Relaying permission ${payload.permissionId} to ${target.platform}:${target.chatId}`);
+    void targetAdapter.sendInteraction({ type: 'permission', chatId: target.chatId, payload });
   });
 
   void gateway.start();
@@ -205,18 +215,25 @@ if (config.gateway.enabled) {
 
 const taskManager = new TaskManager(storage, runtimeRouter, projectRegistry, policyEngine);
 
+const adapterMap = new Map<Platform, IMAdapter>();
+
+function getAdapterForEvent(event: ChatEvent): IMAdapter | undefined {
+  return adapterMap.get(event.platform);
+}
+
 function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, instruction: string, mode: ExecutionMode): void {
   const task = taskManager.createTask({ project_id: projectId, user_id: userId, instruction, mode });
-  sessionManager.updateTask(event.chat_id, task.task_id);
-  taskIdToChatId.set(task.task_id, event.chat_id);
+  sessionManager.updateTask(event.platform, event.chat_id, task.task_id);
+  taskIdToChatId.set(task.task_id, { platform: event.platform, chatId: event.chat_id });
   if (gateway) {
     const ci = gateway.registry.findByProject(projectId);
-    if (ci) connectorIdToChatId.set(ci.connectorId, event.chat_id);
+    if (ci) connectorIdToChatId.set(ci.connectorId, { platform: event.platform, chatId: event.chat_id });
   }
 
-  if (adapter) {
-    void adapter.sendTyping(event.chat_id);
-    void adapter.sendMessage({
+  const eventAdapter = getAdapterForEvent(event);
+  if (eventAdapter) {
+    void eventAdapter.sendTyping(event.chat_id);
+    void eventAdapter.sendMessage({
       platform: event.platform,
       chat_id: event.chat_id,
       reply_to: event.message_id,
@@ -227,8 +244,9 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
 
   const batcher = new OutputBatcher(
     (text, plain) => {
-      if (!adapter) return Promise.resolve();
-      return adapter.sendMessage({
+      const a = getAdapterForEvent(event);
+      if (!a) return Promise.resolve();
+      return a.sendMessage({
         platform: event.platform,
         chat_id: event.chat_id,
         reply_to: event.message_id,
@@ -243,7 +261,8 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
   );
 
   const typingInterval = setInterval(() => {
-    if (adapter) void adapter.sendTyping(event.chat_id);
+    const a = getAdapterForEvent(event);
+    if (a) void a.sendTyping(event.chat_id);
   }, 4000);
 
   taskManager.dispatchTask(task.task_id, (chunk) => {
@@ -263,9 +282,10 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
   auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'message_received', payload: event.text });
 
-  if (adapter && !event.text.startsWith('/') && adapter.hasPendingInteraction(event.chat_id)) {
-    if (adapter instanceof TelegramAdapter) {
-      const handled = adapter.handleCustomTextAnswer(event.chat_id, event.text);
+  const eventAdapter = adapterMap.get(event.platform);
+  if (eventAdapter && !event.text.startsWith('/') && eventAdapter.hasPendingInteraction(event.chat_id)) {
+    if (eventAdapter instanceof TelegramAdapter) {
+      const handled = eventAdapter.handleCustomTextAnswer(event.chat_id, event.text);
       if (handled) return;
     }
   }
@@ -274,7 +294,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
   try {
     parsed = commandRouter.parseCommand(event.text);
   } catch {
-    const session = sessionManager.getSession(event.chat_id);
+    const session = sessionManager.getSession(event.platform, event.chat_id);
     if (session?.project_id && !event.text.startsWith('/')) {
       parsed = { name: 'ask' as const, args: [event.text], rawText: event.text };
     } else {
@@ -309,12 +329,12 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         responseText = `Access denied to project: ${projectId}`;
         break;
       }
-      sessionManager.bindProject(event.chat_id, projectId);
+      sessionManager.bindProject(event.platform, event.chat_id, projectId);
       responseText = messageRenderer.renderProjectBound(project);
       break;
     }
     case 'where': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project>';
         break;
@@ -326,7 +346,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'ask': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -341,7 +361,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'edit': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -356,7 +376,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'test': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -366,7 +386,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'diff': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -414,7 +434,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     case 'log': {
       const logTaskId = parsed.args[0];
       if (!logTaskId) {
-        const session = sessionManager.getSession(event.chat_id);
+        const session = sessionManager.getSession(event.platform, event.chat_id);
         if (session?.active_task_id) {
           const task = taskManager.getTask(session.active_task_id);
           responseText = task
@@ -432,7 +452,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'pr': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -443,7 +463,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'commit': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -457,7 +477,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'status': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session?.active_task_id) {
         responseText = 'No active task.';
         break;
@@ -469,7 +489,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'stop': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session?.active_task_id) {
         responseText = 'No active task to stop.';
         break;
@@ -479,7 +499,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       break;
     }
     case 'new': {
-      const session = sessionManager.getSession(event.chat_id);
+      const session = sessionManager.getSession(event.platform, event.chat_id);
       if (!session) {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
@@ -504,15 +524,18 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     }
   }
 
-  if (responseText && adapter) {
-    const response: ChatResponse = {
-      platform: event.platform,
-      chat_id: event.chat_id,
-      reply_to: event.message_id,
-      message_type: 'text',
-      text: responseText,
-    };
-    await adapter.sendMessage(response);
+  if (responseText) {
+    const respAdapter = adapterMap.get(event.platform);
+    if (respAdapter) {
+      const response: ChatResponse = {
+        platform: event.platform,
+        chat_id: event.chat_id,
+        reply_to: event.message_id,
+        message_type: 'text',
+        text: responseText,
+      };
+      await respAdapter.sendMessage(response);
+    }
   }
 }
 
@@ -555,56 +578,75 @@ function handleAdapterEvent(event: AdapterInboundEvent): void {
 
 let adapter: IMAdapter | undefined;
 
+const adapterDeps: AdapterDeps = {
+  listProjects: (userId: string) =>
+    projectRegistry.listProjects().filter((p) => projectRegistry.isUserAllowed(p.id, userId)),
+  getBinding: (platform: Platform, chatId: string) => sessionManager.getSession(platform, chatId) ?? undefined,
+  bindProject: (platform: Platform, chatId: string, projectId: string) => sessionManager.bindProject(platform, chatId, projectId),
+  isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),
+  generateRegistrationToken: registrationService
+    ? (userId: string) => registrationService!.generateToken(userId)
+    : undefined,
+};
+
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 if (telegramToken) {
-  const adapterDeps: AdapterDeps = {
-    listProjects: (userId: string) =>
-      projectRegistry.listProjects().filter((p) => projectRegistry.isUserAllowed(p.id, userId)),
-    getBinding: (chatId: string) => sessionManager.getSession(chatId) ?? undefined,
-    bindProject: (chatId: string, projectId: string) => sessionManager.bindProject(chatId, projectId),
-    isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),
-    generateRegistrationToken: registrationService
-      ? (userId: string) => registrationService!.generateToken(userId)
-      : undefined,
-  };
-
   const telegramAdapter = new TelegramAdapter(telegramToken, adapterDeps);
-  adapter = telegramAdapter;
-  adapter.onEvent(handleAdapterEvent);
+  adapterMap.set('telegram', telegramAdapter);
+  telegramAdapter.onEvent(handleAdapterEvent);
+  if (!adapter) adapter = telegramAdapter;
+}
 
-  const shutdown = async (signal: string) => {
-    console.log(`Received ${signal}, shutting down...`);
+const feishuAppId = process.env.FEISHU_APP_ID;
+const feishuAppSecret = process.env.FEISHU_APP_SECRET;
+if (feishuAppId && feishuAppSecret) {
+  const feishuDomain = (process.env.FEISHU_DOMAIN ?? 'feishu') as 'feishu' | 'lark';
+  const feishuAdapter = new FeishuAdapter({ appId: feishuAppId, appSecret: feishuAppSecret, domain: feishuDomain }, adapterDeps);
+  adapterMap.set('feishu', feishuAdapter);
+  feishuAdapter.onEvent(handleAdapterEvent);
+  if (!adapter) adapter = feishuAdapter;
+}
 
-    if (adapter) {
-      const chatIds = new Set([...taskIdToChatId.values(), ...connectorIdToChatId.values()]);
-      const notifications = [...chatIds].map((chatId) =>
-        adapter!.sendMessage({
-          platform: adapter!.platform,
-          chat_id: chatId,
-          message_type: 'text',
-          text: '🔄 PetFish Remote is restarting — back in a few seconds.',
-        }).catch(() => {}),
-      );
-      await Promise.allSettled(notifications);
-    }
-
-    const timeout = setTimeout(() => {
-      console.error('Graceful shutdown timed out, forcing exit');
-      process.exit(1);
-    }, 10_000);
-    try {
-      await Promise.allSettled([adapter?.stop(), gateway?.stop()]);
-    } finally {
-      clearTimeout(timeout);
-      process.exit(0);
-    }
-  };
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
-
-  void adapter.start();
-  console.log('PetFish Remote started (Telegram polling)');
-} else {
-  console.error('TELEGRAM_BOT_TOKEN not set. Configure .env and restart.');
+if (adapterMap.size === 0) {
+  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN or FEISHU_APP_ID+FEISHU_APP_SECRET.');
   process.exit(1);
 }
+
+const shutdown = async (signal: string) => {
+  console.log(`Received ${signal}, shutting down...`);
+
+  const chatTargets = new Set([...taskIdToChatId.values(), ...connectorIdToChatId.values()]);
+  const notifications = [...chatTargets].map((target) => {
+    const a = adapterMap.get(target.platform);
+    if (!a) return Promise.resolve();
+    return a.sendMessage({
+      platform: target.platform,
+      chat_id: target.chatId,
+      message_type: 'text',
+      text: '🔄 PetFish Remote is restarting — back in a few seconds.',
+    }).catch(() => {});
+  });
+  await Promise.allSettled(notifications);
+
+  const timeout = setTimeout(() => {
+    console.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 10_000);
+  try {
+    const stops = [...adapterMap.values()].map((a) => a.stop());
+    if (gateway) stops.push(gateway.stop());
+    await Promise.allSettled(stops);
+  } finally {
+    clearTimeout(timeout);
+    process.exit(0);
+  }
+};
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+
+for (const a of adapterMap.values()) {
+  void a.start();
+}
+
+const platforms = [...adapterMap.keys()].join(', ');
+console.log(`PetFish Remote started (adapters: ${platforms})`);

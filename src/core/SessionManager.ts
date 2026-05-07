@@ -1,16 +1,16 @@
 import type { Storage } from '../storage/sqlite.js';
-import type { ExecutionMode, SessionState } from '../types.js';
+import type { ExecutionMode, Platform, SessionState } from '../types.js';
 
 export class SessionManager {
   public constructor(private readonly storage: Storage) {}
 
-  public getSession(chatId: string): SessionState | undefined {
-    return this.storage.getSession(chatId);
+  public getSession(platform: Platform, chatId: string): SessionState | undefined {
+    return this.storage.getSession(platform, chatId);
   }
 
-  public bindProject(chatId: string, projectId: string): SessionState {
+  public bindProject(platform: Platform, chatId: string, projectId: string): SessionState {
     const now = new Date().toISOString();
-    const existing = this.storage.getSession(chatId);
+    const existing = this.storage.getSession(platform, chatId);
 
     if (existing) {
       const updated: SessionState = {
@@ -23,7 +23,8 @@ export class SessionManager {
     }
 
     const created: SessionState = {
-      id: `${chatId}:${projectId}`,
+      id: `${platform}:${chatId}:${projectId}`,
+      platform,
       chat_id: chatId,
       project_id: projectId,
       mode: 'suggest',
@@ -33,18 +34,18 @@ export class SessionManager {
     return created;
   }
 
-  public updateTask(chatId: string, taskId: string): void {
-    const session = this.storage.getSession(chatId);
+  public updateTask(platform: Platform, chatId: string, taskId: string): void {
+    const session = this.storage.getSession(platform, chatId);
     if (!session) {
-      throw new Error(`Session not found for chat: ${chatId}`);
+      throw new Error(`Session not found for ${platform}:${chatId}`);
     }
     this.storage.upsertSession({ ...session, active_task_id: taskId, updated_at: new Date().toISOString() });
   }
 
-  public updateMode(chatId: string, mode: ExecutionMode): void {
-    const session = this.storage.getSession(chatId);
+  public updateMode(platform: Platform, chatId: string, mode: ExecutionMode): void {
+    const session = this.storage.getSession(platform, chatId);
     if (!session) {
-      throw new Error(`Session not found for chat: ${chatId}`);
+      throw new Error(`Session not found for ${platform}:${chatId}`);
     }
     this.storage.upsertSession({ ...session, mode, updated_at: new Date().toISOString() });
   }

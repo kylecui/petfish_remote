@@ -63,7 +63,7 @@ export class TelegramAdapter extends BaseIMAdapter {
         return;
       }
 
-      const binding = this.deps?.getBinding(String(ctx.chat.id));
+      const binding = this.deps?.getBinding('telegram', String(ctx.chat.id));
       const keyboard = new InlineKeyboard()
         .text('📋 Projects', 'pf:list')
         .text('📊 Status', 'pf:status')
@@ -101,7 +101,7 @@ export class TelegramAdapter extends BaseIMAdapter {
       const keyboard = new InlineKeyboard();
       for (let i = 0; i < projects.length; i++) {
         const p = projects[i];
-        const binding = this.deps?.getBinding(String(ctx.chatId));
+        const binding = this.deps?.getBinding('telegram', String(ctx.chatId));
         const prefix = binding?.project_id === p.id ? '✅ ' : '';
         keyboard.text(`${prefix}${p.name}`, `pf:use:${p.id}`);
         if (i % 2 === 1) keyboard.row();
@@ -122,7 +122,7 @@ export class TelegramAdapter extends BaseIMAdapter {
         return;
       }
 
-      this.deps.bindProject(chatId, projectId);
+      this.deps.bindProject('telegram', chatId, projectId);
       await ctx.editMessageText(
         `✅ Bound to *${projectId}*\n\nNow just send any message to ask.`,
         { parse_mode: 'Markdown' },
@@ -179,7 +179,7 @@ export class TelegramAdapter extends BaseIMAdapter {
 
     this.bot.callbackQuery('pf:back', async (ctx) => {
       await ctx.answerCallbackQuery();
-      const binding = this.deps?.getBinding(String(ctx.chatId));
+      const binding = this.deps?.getBinding('telegram', String(ctx.chatId));
       const keyboard = new InlineKeyboard()
         .text('📋 Projects', 'pf:list')
         .text('📊 Status', 'pf:status')

@@ -103,6 +103,7 @@ export interface UserConfig {
 
 export interface SessionState {
   id: string;
+  platform: Platform;
   chat_id: string;
   project_id: string;
   opencode_session_id?: string;

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-import type { ApprovalRecord, AuditEvent, SessionState, TaskRecord, UserConfig } from '../types.js';
+import type { ApprovalRecord, AuditEvent, Platform, SessionState, TaskRecord, UserConfig } from '../types.js';
 
 export class Storage {
   private readonly db: Database.Database;
@@ -21,12 +21,14 @@ export class Storage {
 
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
-        chat_id TEXT NOT NULL UNIQUE,
+        platform TEXT NOT NULL DEFAULT 'telegram',
+        chat_id TEXT NOT NULL,
         project_id TEXT NOT NULL,
         opencode_session_id TEXT,
         active_task_id TEXT,
         mode TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        UNIQUE(platform, chat_id)
       );
 
       CREATE TABLE IF NOT EXISTS tasks (
@@ -79,6 +81,34 @@ export class Storage {
     `;
 
     this.db.exec(schema);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    // Migration: add platform column to sessions (for DBs created before multi-platform support)
+    const columns = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+    const hasPlatform = columns.some((c) => c.name === 'platform');
+    if (!hasPlatform) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'`);
+      // Recreate unique constraint: drop old UNIQUE on chat_id, add composite
+      // SQLite doesn't support DROP CONSTRAINT, so we rebuild the table
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS sessions_new (
+          id TEXT PRIMARY KEY,
+          platform TEXT NOT NULL DEFAULT 'telegram',
+          chat_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          opencode_session_id TEXT,
+          active_task_id TEXT,
+          mode TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(platform, chat_id)
+        );
+        INSERT INTO sessions_new SELECT id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, updated_at FROM sessions;
+        DROP TABLE sessions;
+        ALTER TABLE sessions_new RENAME TO sessions;
+      `);
+    }
   }
 
   public upsertUser(user: UserConfig): void {
@@ -123,9 +153,10 @@ export class Storage {
 
   public upsertSession(session: SessionState): void {
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, chat_id, project_id, opencode_session_id, active_task_id, mode, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        platform = excluded.platform,
         chat_id = excluded.chat_id,
         project_id = excluded.project_id,
         opencode_session_id = excluded.opencode_session_id,
@@ -136,6 +167,7 @@ export class Storage {
 
     stmt.run(
       session.id,
+      session.platform,
       session.chat_id,
       session.project_id,
       session.opencode_session_id ?? null,
@@ -145,16 +177,16 @@ export class Storage {
     );
   }
 
-  public getSession(chatId: string): SessionState | undefined {
-    const row = this.db.prepare('SELECT * FROM sessions WHERE chat_id = ?').get(chatId) as SessionState | undefined;
+  public getSession(platform: Platform, chatId: string): SessionState | undefined {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE platform = ? AND chat_id = ?').get(platform, chatId) as SessionState | undefined;
     return row;
   }
 
-  public getChatIdByProject(projectId: string): string | undefined {
+  public getChatIdByProject(projectId: string): { platform: Platform; chatId: string } | undefined {
     const row = this.db
-      .prepare('SELECT chat_id FROM sessions WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1')
-      .get(projectId) as { chat_id: string } | undefined;
-    return row?.chat_id;
+      .prepare('SELECT platform, chat_id FROM sessions WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1')
+      .get(projectId) as { platform: string; chat_id: string } | undefined;
+    return row ? { platform: row.platform as Platform, chatId: row.chat_id } : undefined;
   }
 
   public createTask(task: TaskRecord): void {
