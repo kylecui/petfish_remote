@@ -1,4 +1,6 @@
-const TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
+import type { MessageRenderPolicy } from './renderPolicy.js';
+import { telegramRenderPolicy } from './renderPolicy.js';
+
 const DEFAULT_FLUSH_INTERVAL_MS = 3000;
 const DEFAULT_MAX_BUFFER_SIZE = 3000;
 
@@ -18,6 +20,7 @@ export class OutputBatcher {
     private readonly flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS,
     private readonly maxBufferSize = DEFAULT_MAX_BUFFER_SIZE,
     private readonly projectLabel?: string,
+    private readonly policy: MessageRenderPolicy = telegramRenderPolicy,
   ) {}
 
   public append(chunk: string): void {
@@ -42,10 +45,9 @@ export class OutputBatcher {
       await this.flush();
     }
 
-    const status = exitCode === 0 ? '✅ completed' : '❌ failed';
-    const prefix = this.projectLabel ? `📂 *${this.projectLabel}* · ` : '';
+    const text = this.policy.formatCompletion(this.taskId, this.projectLabel, this.totalChars, this.messageCount, exitCode);
     try {
-      await this.sendFn(`${prefix}Task \`${this.taskId}\` ${status} (${this.totalChars} chars, ${this.messageCount} messages)`);
+      await this.sendFn(text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send completion for task ${this.taskId}: ${msg}`);
@@ -60,9 +62,9 @@ export class OutputBatcher {
       await this.flush();
     }
 
-    const prefix = this.projectLabel ? `📂 *${this.projectLabel}* · ` : '';
+    const text = this.policy.formatError(this.taskId, this.projectLabel, error);
     try {
-      await this.sendFn(`${prefix}Task \`${this.taskId}\` ❌ error: ${error}`);
+      await this.sendFn(text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send error for task ${this.taskId}: ${msg}`);
@@ -78,12 +80,10 @@ export class OutputBatcher {
     this.clearTimer();
     if (this.buffer.length === 0) return;
 
-    let text = this.buffer.length > TELEGRAM_MAX_MESSAGE_LENGTH - 50
-      ? this.buffer.slice(0, TELEGRAM_MAX_MESSAGE_LENGTH - 50) + '\n...(truncated)'
-      : this.buffer;
+    let text = this.policy.truncate(this.buffer);
 
     if (this.firstFlush && this.projectLabel) {
-      text = `📂 *${this.projectLabel}*\n${text}`;
+      text = this.policy.formatHeader(this.projectLabel) + text;
       this.firstFlush = false;
     }
 
