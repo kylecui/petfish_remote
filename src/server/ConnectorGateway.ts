@@ -25,7 +25,7 @@ import {
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorAuth } from './ConnectorAuth.js';
 import { type ConnectorInfo, ConnectorRegistry } from './ConnectorRegistry.js';
-import type { RegistrationService, RegisterRequest } from './RegistrationService.js';
+import type { RegistrationService, RegisterRequest, AddPlatformRequest } from './RegistrationService.js';
 
 export interface GatewayOptions {
   port: number;
@@ -55,6 +55,11 @@ export class ConnectorGateway extends EventEmitter {
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
     if (req.method === 'POST' && req.url === '/api/register') {
       this.handleRegisterApi(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/add-platform') {
+      this.handleAddPlatformApi(req, res);
       return;
     }
 
@@ -143,6 +148,45 @@ export class ConnectorGateway extends EventEmitter {
 
       // Dynamically add the connector token to auth so it can connect via WS
       this.options.auth.addWildcardToken(result.connectorToken);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    });
+  }
+
+  private handleAddPlatformApi(req: IncomingMessage, res: ServerResponse): void {
+    const registrationService = this.options.registrationService;
+    if (!registrationService) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Registration not enabled' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      let payload: AddPlatformRequest;
+      try {
+        payload = JSON.parse(body) as AddPlatformRequest;
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      if (!payload.registrationToken || !payload.connectorToken || !payload.projectId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing required fields: registrationToken, connectorToken, projectId' }));
+        return;
+      }
+
+      const result = registrationService.addPlatform(payload);
+
+      if ('error' in result) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));

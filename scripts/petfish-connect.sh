@@ -3,11 +3,15 @@
 #
 # Usage:
 #   petfish-connect.sh setup --token <token> --project-id <id> [options]
+#   petfish-connect.sh setup --token <token> [--force-register]  — Add platform or fresh register
 #   petfish-connect.sh start [connector.yaml]  — Start connector as daemon
 #   petfish-connect.sh stop                    — Stop running connector
 #   petfish-connect.sh status                  — Show connector status
 #   petfish-connect.sh restart [connector.yaml] — Restart connector
 #   petfish-connect.sh logs                    — Tail connector log
+#
+# If connector.yaml exists, setup auto-detects and calls /api/add-platform
+# instead of /api/register. Use --force-register to override.
 #
 # The connector runs as a background daemon (survives terminal close).
 # Safe to call from within opencode — uses nohup + disown.
@@ -250,6 +254,7 @@ do_setup() {
   local opencode_bin=""
   local agent="auto"
   local config_out="./connector.yaml"
+  local force_register=false
 
   shift
   while [[ $# -gt 0 ]]; do
@@ -262,16 +267,13 @@ do_setup() {
       --opencode-bin) opencode_bin="$2"; shift 2 ;;
       --agent) agent="$2"; shift 2 ;;
       --output) config_out="$2"; shift 2 ;;
+      --force-register) force_register=true; shift ;;
       *) echo "Unknown option: $1"; exit 1 ;;
     esac
   done
 
   if [ -z "$token" ]; then
-    echo "ERROR: --token is required. Get one from /start in Telegram."
-    exit 1
-  fi
-  if [ -z "$project_id" ]; then
-    echo "ERROR: --project-id is required."
+    echo "ERROR: --token is required. Get one from /start in Telegram or Feishu."
     exit 1
   fi
 
@@ -281,8 +283,10 @@ do_setup() {
   esac
 
   project_name="${project_name:-$project_id}"
-  project_path="${project_path:-$(pwd)}"
-  project_path="$(cd "$project_path" && pwd)"
+
+  if [ -n "$project_path" ]; then
+    project_path="$(cd "$project_path" && pwd)"
+  fi
 
   if [ -z "$opencode_bin" ]; then
     opencode_bin="$(which opencode 2>/dev/null || echo "$HOME/.opencode/bin/opencode")"
@@ -297,6 +301,20 @@ do_setup() {
 
   local hostname
   hostname="$(hostname)"
+
+  # Detect existing connector.yaml — use add-platform instead of register
+  if [ -f "$config_out" ] && [ "$force_register" != "true" ]; then
+    do_add_platform "$token" "$config_out" "$server_url" "$project_id"
+    return
+  fi
+
+  # Fresh registration flow
+  if [ -z "$project_id" ]; then
+    echo "ERROR: --project-id is required for fresh registration."
+    exit 1
+  fi
+
+  project_path="${project_path:-$(pwd)}"
 
   echo "><(((^> petfish-connect: registering with server..."
   echo "   server: $server_url"
@@ -359,6 +377,95 @@ YAML
   echo "  petfish-connect.sh start $config_out"
 }
 
+do_add_platform() {
+  local token="$1"
+  local config_file="$2"
+  local server_url="$3"
+  local project_id="$4"
+
+  local existing_token
+  existing_token="$(grep '^token:' "$config_file" | sed 's/^token: *//; s/^"//; s/"$//' | tr -d '[:space:]')"
+
+  if [ -z "$existing_token" ]; then
+    echo "ERROR: Could not read token from existing $config_file"
+    echo "  Use --force-register to create a fresh registration."
+    exit 1
+  fi
+
+  # If no project-id specified, add to all projects in the yaml
+  if [ -z "$project_id" ]; then
+    local project_ids
+    project_ids="$(grep '^\s*- id:' "$config_file" | sed 's/.*- id: *//' | tr -d '[:space:]')"
+
+    if [ -z "$project_ids" ]; then
+      echo "ERROR: No projects found in $config_file and no --project-id specified."
+      exit 1
+    fi
+
+    echo "><(((^> petfish-connect: adding platform to existing connector..."
+    echo "   config: $config_file"
+    echo "   server: $server_url"
+    echo ""
+
+    local any_failed=false
+    while IFS= read -r pid; do
+      [ -z "$pid" ] && continue
+      echo "   Adding platform for project: $pid"
+      if ! do_add_platform_single "$token" "$existing_token" "$pid" "$server_url"; then
+        any_failed=true
+      fi
+    done <<< "$project_ids"
+
+    if [ "$any_failed" = "true" ]; then
+      echo ""
+      echo "   ⚠️  Some projects failed. Check errors above."
+      exit 1
+    fi
+  else
+    echo "><(((^> petfish-connect: adding platform to existing connector..."
+    echo "   config: $config_file"
+    echo "   server: $server_url"
+    echo "   project: $project_id"
+    echo ""
+    do_add_platform_single "$token" "$existing_token" "$project_id" "$server_url"
+  fi
+
+  echo ""
+  echo "   ✅ Platform added successfully!"
+  echo "   Existing connector.yaml unchanged — no restart needed."
+}
+
+do_add_platform_single() {
+  local reg_token="$1"
+  local connector_token="$2"
+  local proj_id="$3"
+  local server_url="$4"
+
+  local response
+  response="$(curl -s -w "\n%{http_code}" -X POST "${server_url}/api/add-platform" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"registrationToken\": \"${reg_token}\",
+      \"connectorToken\": \"${connector_token}\",
+      \"projectId\": \"${proj_id}\"
+    }")"
+
+  local http_code
+  http_code="$(echo "$response" | tail -1)"
+  local body
+  body="$(echo "$response" | sed '$d')"
+
+  if [ "$http_code" != "200" ]; then
+    echo "   ❌ Failed for project $proj_id (HTTP $http_code): $body"
+    return 1
+  fi
+
+  local added_user
+  added_user="$(echo "$body" | grep -o '"userId":"[^"]*"' | cut -d'"' -f4)"
+  echo "   ✅ $proj_id — user $added_user added"
+  return 0
+}
+
 case "${1:-}" in
   setup)
     do_setup "$@"
@@ -393,6 +500,9 @@ case "${1:-}" in
     echo ""
     echo "Setup:"
     echo "  petfish-connect.sh setup --token <token> --project-id <id> [--project-path /path] [--server url]"
+    echo ""
+    echo "  If connector.yaml already exists, setup will add the new platform user to existing projects"
+    echo "  instead of creating a fresh registration. Use --force-register to override."
     exit 1
     ;;
 esac

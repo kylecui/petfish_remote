@@ -1,6 +1,6 @@
 # Install & Upgrade — PetFish Remote
 
-> One connector, all your AI coding agents, controlled from Telegram.
+> One connector, all your AI coding agents, controlled from Telegram and Feishu.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 
 To use a non-default AI agent, add --agent: `curl ... | bash -s -- <token> --agent gemini`
 
-**Get a token:** Send `/start` to [@petfish_bot](https://t.me/petfish_bot) on Telegram. Tokens expire in 5 minutes.
+**Get a token:** Send `/start` to the bot on Telegram or Feishu. Tokens expire in 5 minutes.
 
 ### Environment overrides
 
@@ -75,6 +75,50 @@ The script uses `Start-Process` to launch a background daemon that persists afte
 .\scripts\petfish-connect.ps1 stop                # Stop daemon
 .\scripts\petfish-connect.ps1 restart connector.yaml  # Restart
 .\scripts\petfish-connect.ps1 logs                # Tail logs
+```
+
+## Multi-Platform Setup (Telegram + Feishu)
+
+PetFish Remote supports controlling the same projects from both Telegram and Feishu simultaneously. One connector handles both platforms — no duplicated setup needed.
+
+### Adding a Second Platform
+
+If you already have a working connector (e.g. set up via Telegram), adding Feishu (or vice versa) is a single command:
+
+1. Send `/start` to the bot on the **new** platform to get a token
+2. Run the installer from the project directory where `connector.yaml` exists:
+
+```bash
+cd ~/dev/my-project
+curl -sSL https://remote.petfish.ai/install | bash -s -- <token-from-new-platform>
+```
+
+The installer detects the existing `connector.yaml` and calls `/api/add-platform` instead of creating a new registration. Your connector config is unchanged, no restart required.
+
+### What Happens Behind the Scenes
+
+- The new platform's user ID is added to `allowed_users` for each project in your connector
+- The existing connector token and WebSocket connection remain untouched
+- Both platform users can now send commands to the same projects
+
+### Force Fresh Registration
+
+To replace the existing connector identity entirely (e.g. after a token refresh or if you want to start over):
+
+```bash
+curl -sSL https://remote.petfish.ai/install | bash -s -- <token> --force-register
+```
+
+This overwrites `connector.yaml` with a new connector token. The old token becomes invalid.
+
+### Manual Setup (petfish-connect.sh)
+
+```bash
+# Add platform to existing connector:
+bash scripts/petfish-connect.sh setup --token <new-platform-token>
+
+# Force fresh registration:
+bash scripts/petfish-connect.sh setup --token <token> --project-id my-project --force-register
 ```
 
 ## Upgrade
@@ -171,7 +215,7 @@ Remove-Item -Recurse -Force $env:USERPROFILE\.petfish\remote
 | Symptom | Fix |
 |---------|-----|
 | `node: command not found` | Install Node.js ≥ 18: https://nodejs.org |
-| Token expired | Send `/start` again in Telegram for a fresh token |
+| Token expired | Send `/start` again in Telegram or Feishu for a fresh token |
 | Connector won't start | Check `scripts/petfish-connect.sh logs` or `.runtime/connector.log` |
 | Already running | `petfish-connect.sh status` shows PID — stop first, then restart |
 | Windows: "not digitally signed" | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |

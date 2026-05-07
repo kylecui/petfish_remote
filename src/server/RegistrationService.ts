@@ -22,6 +22,18 @@ export interface RegisterResult {
   serverUrl: string;
 }
 
+export interface AddPlatformRequest {
+  registrationToken: string;
+  connectorToken: string;
+  projectId: string;
+}
+
+export interface AddPlatformResult {
+  success: true;
+  userId: string;
+  projectId: string;
+}
+
 export class RegistrationService {
   private readonly pendingTokens = new Map<string, PendingToken>();
   private readonly tokenTtlMs = 300_000;
@@ -82,6 +94,61 @@ export class RegistrationService {
       connectorToken,
       projectId: req.projectId,
       serverUrl: process.env.PETFISH_SERVER_URL ?? 'wss://remote.petfish.ai/ws/connector',
+    };
+  }
+
+  public addPlatform(req: AddPlatformRequest): AddPlatformResult | { error: string } {
+    // 1. Validate registration token (same logic as register)
+    const pending = this.pendingTokens.get(req.registrationToken);
+    if (!pending) {
+      return { error: 'Invalid or expired registration token' };
+    }
+
+    if (Date.now() - pending.createdAt > this.tokenTtlMs) {
+      this.pendingTokens.delete(req.registrationToken);
+      return { error: 'Registration token expired (5 min TTL)' };
+    }
+
+    this.pendingTokens.delete(req.registrationToken);
+
+    // 2. Validate connector token — find the existing user who owns this connector
+    const existingUserId = this.resolveUserByToken(req.connectorToken);
+    if (!existingUserId) {
+      return { error: 'Invalid connector token — not associated with any user' };
+    }
+
+    // 3. Verify the project belongs to the existing user
+    const existingProjects = this.userProjects.get(existingUserId);
+    if (!existingProjects || !existingProjects.has(req.projectId)) {
+      return { error: `Project ${req.projectId} not found for this connector` };
+    }
+
+    // 4. Look up project details from storage for the registration callback
+    const allProjects = this.storage?.getAllRegisteredProjects() ?? [];
+    const projectInfo = allProjects.find(
+      (p) => p.projectId === req.projectId && p.userId === existingUserId,
+    );
+    const projectName = projectInfo?.projectName ?? req.projectId;
+    const projectPath = projectInfo?.projectPath ?? '';
+
+    // 5. Add the new platform user to the project (DO NOT generate new connectorToken)
+    const newUserId = pending.userId;
+    let userProjectSet = this.userProjects.get(newUserId);
+    if (!userProjectSet) {
+      userProjectSet = new Set();
+      this.userProjects.set(newUserId, userProjectSet);
+    }
+    userProjectSet.add(req.projectId);
+    this.storage?.upsertRegisteredProject(newUserId, req.projectId, projectName, projectPath);
+
+    this.onProjectRegistered?.(newUserId, req.projectId, projectName, projectPath);
+
+    console.log(`[registration] Platform added: user ${newUserId} → project ${req.projectId} (via existing user ${existingUserId})`);
+
+    return {
+      success: true,
+      userId: newUserId,
+      projectId: req.projectId,
     };
   }
 

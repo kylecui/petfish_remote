@@ -8,6 +8,7 @@
 #   1. Checks prerequisites (node, npm/npx, git, curl)
 #   2. Installs or upgrades petfish-remote client
 #   3. Registers with the bot server using the provided token
+#      — If connector.yaml already exists, adds the new platform instead of re-registering
 #   4. Starts the connector daemon
 #
 # Pre-requirements:
@@ -19,7 +20,7 @@
 #   PETFISH_REMOTE_DIR  — Install directory (default: ~/.petfish/remote)
 #   PETFISH_SERVER_URL  — Server URL override (default: injected by server or https://remote.petfish.ai)
 #
-# The token is one-time-use and expires in 5 minutes. Get one via /start in Telegram.
+# The token is one-time-use and expires in 5 minutes. Get one via /start in Telegram or Feishu.
 
 set -euo pipefail
 { # entire script wrapped in braces — safe for curl | bash (prevents partial execution)
@@ -60,6 +61,7 @@ PROJECT_NAME=""
 OPENCODE_BIN=""
 AGENT=""
 AUTO_START=true
+FORCE_REGISTER=false
 NPM_CMD=""
 
 parse_args() {
@@ -72,6 +74,7 @@ parse_args() {
       --opencode-bin)  OPENCODE_BIN="$2"; shift 2 ;;
       --agent)         AGENT="$2"; shift 2 ;;
       --no-start)      AUTO_START=false; shift ;;
+      --force-register) FORCE_REGISTER=true; shift ;;
       --help|-h)       usage; exit 0 ;;
       -*)              die "Unknown option: $1. Use --help for usage." ;;
       *)
@@ -95,7 +98,7 @@ Usage:
   curl -sSL https://remote.petfish.ai/install | bash -s -- <token> [project-id] [options]
 
 Arguments:
-  token         One-time registration token (from /start in Telegram)
+  token         One-time registration token (from /start in Telegram or Feishu)
   project-id    Project identifier (default: current directory name)
 
 Options:
@@ -104,7 +107,13 @@ Options:
   --opencode-bin <path>   Path to opencode binary
   --agent <type>          AI agent type: auto|opencode|gemini|codex (default: auto)
   --no-start              Don't start connector after setup
+  --force-register        Force fresh registration (overwrite existing connector.yaml)
   --help                  Show this help
+
+Multi-platform:
+  If connector.yaml already exists, the installer detects this and adds the new
+  platform user to your existing projects — no connector restart needed.
+  Use --force-register to replace the existing connector identity instead.
 
 Pre-requirements:
   - Node.js >= 18 (https://nodejs.org or: curl -fsSL https://fnm.vercel.app/install | bash)
@@ -112,11 +121,14 @@ Pre-requirements:
   - curl (usually pre-installed)
 
 Examples:
-  # Minimal (auto-detects project from current directory):
+  # Fresh install (auto-detects project from current directory):
   curl -sSL https://remote.petfish.ai/install | bash -s -- abc123def456
 
   # Explicit project:
   curl -sSL https://remote.petfish.ai/install | bash -s -- abc123 my-project --project-path ~/dev/myapp
+
+  # Add Feishu to existing Telegram setup:
+  curl -sSL https://remote.petfish.ai/install | bash -s -- <feishu-token>
 EOF
 }
 
@@ -250,13 +262,14 @@ do_register() {
     die "Setup script not found at $setup_script"
   fi
 
-  local args=(setup --token "$TOKEN" --project-id "$PROJECT_ID")
+  local args=(setup --token "$TOKEN")
+  [ -n "$PROJECT_ID" ] && args+=(--project-id "$PROJECT_ID")
   [ -n "$PROJECT_PATH" ] && args+=(--project-path "$PROJECT_PATH")
   [ -n "$PROJECT_NAME" ] && args+=(--project-name "$PROJECT_NAME")
   [ -n "$OPENCODE_BIN" ] && args+=(--opencode-bin "$OPENCODE_BIN")
   [ -n "$AGENT" ] && args+=(--agent "$AGENT")
+  [ "$FORCE_REGISTER" = "true" ] && args+=(--force-register)
 
-  # Override server URL if injected
   if [ "$PETFISH_SERVER_URL" != "__PETFISH_SERVER_URL__" ]; then
     args+=(--server "$PETFISH_SERVER_URL")
   fi
@@ -273,8 +286,16 @@ do_start() {
     return
   fi
 
+  local config_path="${PROJECT_PATH:-$(pwd)}/connector.yaml"
+  local pid_file="/tmp/petfish-connector-$(basename "${PROJECT_PATH:-$(pwd)}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-').pid"
+
+  if [ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    info "Connector already running (PID $(cat "$pid_file")) — no restart needed."
+    return
+  fi
+
   info "Starting connector..."
-  bash "$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" start ./connector.yaml
+  bash "$PETFISH_REMOTE_DIR/scripts/petfish-connect.sh" start "$config_path"
 }
 
 # --- Main ---
@@ -286,13 +307,21 @@ main() {
   parse_args "$@"
 
   if [ -z "$TOKEN" ]; then
-    die "Token required. Get one via /start in Telegram bot.\n    Usage: curl -sSL https://remote.petfish.ai/install | bash -s -- <token>"
+    die "Token required. Get one via /start in Telegram or Feishu bot.\n    Usage: curl -sSL https://remote.petfish.ai/install | bash -s -- <token>"
   fi
 
-  # Defaults
-  PROJECT_ID="${PROJECT_ID:-$(basename "$(pwd)")}"
+  # Defaults — PROJECT_ID only required for fresh install, not add-platform
   PROJECT_PATH="${PROJECT_PATH:-$(pwd)}"
   PROJECT_NAME="${PROJECT_NAME:-$PROJECT_ID}"
+
+  local existing_config="$PROJECT_PATH/connector.yaml"
+  if [ -f "$existing_config" ] && [ "$FORCE_REGISTER" != "true" ]; then
+    info "Detected existing connector.yaml — will add platform instead of fresh registration."
+    PROJECT_ID="${PROJECT_ID:-}"
+  else
+    PROJECT_ID="${PROJECT_ID:-$(basename "$(pwd)")}"
+    PROJECT_NAME="${PROJECT_NAME:-$PROJECT_ID}"
+  fi
 
   check_prerequisites
   install_or_upgrade
@@ -302,6 +331,7 @@ main() {
   echo ""
   ok "Done! Your connector is running."
   echo "    Manage: $PETFISH_REMOTE_DIR/scripts/petfish-connect.sh [status|stop|restart|logs]"
+  echo "    Add another platform: curl -sSL https://remote.petfish.ai/install | bash -s -- <token-from-new-platform>"
   echo ""
 }
 
