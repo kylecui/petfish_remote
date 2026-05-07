@@ -162,12 +162,12 @@ export class FeishuAdapter extends BaseIMAdapter {
     console.log(`[feishu] Message received: chat_id=${chatId} user_id=${userId} message_id=${messageId} text=${JSON.stringify(text)}`);
 
     if (text.trim() === '/start') {
-      void this.sendStartCard(chatId, userId);
+      void this.sendStartCard(chatId, 'chat_id', userId);
       return;
     }
 
     if (text.trim() === '/pf' || text.trim() === '/menu') {
-      void this.sendMenuCard(chatId, userId);
+      void this.sendMenuCard(chatId);
       return;
     }
 
@@ -214,24 +214,37 @@ export class FeishuAdapter extends BaseIMAdapter {
     if (!eventKey || !userId) return;
 
     const chatId = this.userChatMap.get(userId) ?? '';
+
     if (!chatId) {
-      console.warn('[feishu] bot_menu: no chat_id cached for user, ignoring', userId);
+      console.log(`[feishu] bot_menu: no chat_id cached for user ${userId}, using open_id`);
+      switch (eventKey) {
+        case 'pf_start':
+          void this.sendStartCard(userId, 'open_id');
+          break;
+        case 'pf_menu':
+          void this.sendMenuCard(userId, 'open_id');
+          break;
+        default:
+          void this.sendCardMessage(userId, 'open_id', {
+            header: { title: { tag: 'plain_text', content: '><(((^> PetFish Remote' }, template: 'blue' },
+            elements: [{ tag: 'markdown', content: 'Send any message to activate all commands, then try again.' }],
+          });
+          break;
+      }
       return;
     }
 
     switch (eventKey) {
       case 'pf_start':
-        void this.sendStartCard(chatId, userId);
+        void this.sendStartCard(chatId, 'chat_id', userId);
         break;
       case 'pf_menu':
-        void this.sendMenuCard(chatId, userId);
+        void this.sendMenuCard(chatId);
         break;
       case 'pf_list':
         void this.sendProjectListCard(chatId, userId);
         break;
       default: {
-        // Bot menu event_keys are prefixed with "pf_" (e.g. pf_status, pf_new)
-        // Strip the prefix to get the actual command name
         const command = eventKey.startsWith('pf_') ? eventKey.slice(3) : eventKey;
         this.emitSyntheticCommand(chatId, userId, `/pf ${command}`);
         break;
@@ -305,8 +318,13 @@ export class FeishuAdapter extends BaseIMAdapter {
     });
   }
 
-  private async sendStartCard(chatId: string, userId: string): Promise<void> {
-    const fullUserId = `feishu:${userId}`;
+  private async sendStartCard(
+    receiveId: string,
+    receiveIdType: 'chat_id' | 'open_id' = 'chat_id',
+    userId?: string,
+  ): Promise<void> {
+    const openId = userId ?? (receiveIdType === 'open_id' ? receiveId : '');
+    const fullUserId = `feishu:${openId}`;
     const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
 
     let tokenSection: string;
@@ -337,22 +355,16 @@ export class FeishuAdapter extends BaseIMAdapter {
       ],
     };
 
-    try {
-      await this.client.im.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: {
-          receive_id: chatId,
-          msg_type: 'interactive',
-          content: JSON.stringify(card),
-        },
-      });
-    } catch (err) {
-      console.error(`[feishu] sendStartCard error:`, err);
-    }
+    await this.sendCardMessage(receiveId, receiveIdType, card);
   }
 
-  private async sendMenuCard(chatId: string, userId: string): Promise<void> {
-    const binding = this.deps?.getBinding('feishu', chatId);
+  private async sendMenuCard(
+    receiveId: string,
+    receiveIdType: 'chat_id' | 'open_id' = 'chat_id',
+  ): Promise<void> {
+    const binding = receiveIdType === 'chat_id'
+      ? this.deps?.getBinding('feishu', receiveId)
+      : undefined;
     const boundText = binding
       ? `Bound to: **${binding.project_id}**\nSend any message to ask.`
       : 'No project bound yet. Tap Projects to start.';
@@ -396,19 +408,7 @@ export class FeishuAdapter extends BaseIMAdapter {
       ],
     };
 
-    void userId;
-    try {
-      await this.client.im.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: {
-          receive_id: chatId,
-          msg_type: 'interactive',
-          content: JSON.stringify(card),
-        },
-      });
-    } catch (err) {
-      console.error(`[feishu] sendMenuCard error:`, err);
-    }
+    await this.sendCardMessage(receiveId, receiveIdType, card);
   }
 
   private async sendProjectListCard(chatId: string, userId: string): Promise<void> {
@@ -481,6 +481,25 @@ export class FeishuAdapter extends BaseIMAdapter {
       type: 'default',
       value: { type: 'menu_action', command },
     };
+  }
+
+  private async sendCardMessage(
+    receiveId: string,
+    receiveIdType: 'chat_id' | 'open_id',
+    card: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: receiveIdType },
+        data: {
+          receive_id: receiveId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      console.error(`[feishu] sendCardMessage error (${receiveIdType}=${receiveId}):`, err);
+    }
   }
 
   private async sendQuestion(chatId: string, payload: TaskQuestionPayload): Promise<void> {
