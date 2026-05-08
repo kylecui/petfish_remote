@@ -1,4 +1,4 @@
-import { Bot, Context, InlineKeyboard } from 'grammy';
+import { Bot, Context, GrammyError, InlineKeyboard } from 'grammy';
 
 import type { ChatEvent, ChatResponse } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
@@ -284,7 +284,28 @@ export class TelegramAdapter extends BaseIMAdapter {
       { command: 'pf', description: 'PetFish Remote control panel' },
       { command: 'start', description: 'Welcome & setup' },
     ]);
-    await this.bot.start();
+
+    // Clear any stale webhook to prevent polling+webhook conflict
+    await this.bot.api.deleteWebhook();
+
+    const MAX_RETRIES = 5;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.bot.start();
+        return;
+      } catch (err) {
+        const is409 = err instanceof GrammyError && err.error_code === 409;
+        if (is409 && attempt < MAX_RETRIES) {
+          // Previous process's long-poll is still in-flight (up to 30s timeout).
+          // Backoff: 5s, 10s, 20s, 35s — enough for Telegram to expire the old request.
+          const delay = Math.min(5000 * Math.pow(2, attempt - 1), 35000);
+          console.log(`[telegram] getUpdates 409 conflict (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay / 1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   public async stop(): Promise<void> {
