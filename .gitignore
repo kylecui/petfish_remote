@@ -13,6 +13,9 @@ connector.yaml
 *.swp
 *.swo
 
+# Local ops
+.ops-notes
+
 # OS
 .DS_Store
 Thumbs.db
