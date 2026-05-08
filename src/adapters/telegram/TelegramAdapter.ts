@@ -285,27 +285,28 @@ export class TelegramAdapter extends BaseIMAdapter {
       { command: 'start', description: 'Welcome & setup' },
     ]);
 
-    // Clear any stale webhook to prevent polling+webhook conflict
     await this.bot.api.deleteWebhook();
 
-    const MAX_RETRIES = 5;
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    // Flush stale long-poll from a previous process with a non-blocking getUpdates.
+    // Each retry waits longer because Telegram's long-poll timeout is up to 30s.
+    const MAX_FLUSH = 8;
+    for (let attempt = 1; attempt <= MAX_FLUSH; attempt++) {
       try {
-        await this.bot.start();
-        return;
+        await this.bot.api.getUpdates({ offset: -1, limit: 1, timeout: 0 });
+        break;
       } catch (err) {
         const is409 = err instanceof GrammyError && err.error_code === 409;
-        if (is409 && attempt < MAX_RETRIES) {
-          // Previous process's long-poll is still in-flight (up to 30s timeout).
-          // Backoff: 5s, 10s, 20s, 35s — enough for Telegram to expire the old request.
-          const delay = Math.min(5000 * Math.pow(2, attempt - 1), 35000);
-          console.log(`[telegram] getUpdates 409 conflict (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay / 1000}s...`);
+        if (is409 && attempt < MAX_FLUSH) {
+          const delay = Math.min(5000 * attempt, 30000);
+          console.log(`[telegram] Clearing stale polling slot (${attempt}/${MAX_FLUSH}), next try in ${delay / 1000}s...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
         throw err;
       }
     }
+
+    await this.bot.start();
   }
 
   public async stop(): Promise<void> {

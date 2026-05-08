@@ -652,8 +652,11 @@ const shutdown = async (signal: string) => {
 process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
-for (const a of adapterMap.values()) {
-  void a.start();
+for (const [name, a] of adapterMap.entries()) {
+  void a.start().catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[${name}] Adapter failed to start: ${msg}`);
+  });
 }
 
 const platforms = [...adapterMap.keys()].join(', ');
