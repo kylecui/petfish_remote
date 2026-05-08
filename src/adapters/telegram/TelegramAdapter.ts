@@ -306,7 +306,13 @@ export class TelegramAdapter extends BaseIMAdapter {
       }
     }
 
-    await this.bot.start();
+    // bot.start() enters a long-poll loop that only resolves when bot.stop()
+    // is called. Run it in background so this promise resolves immediately,
+    // allowing callers to know the adapter initialized successfully.
+    void this.bot.start().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[telegram] Polling stopped: ${msg}`);
+    });
   }
 
   public async stop(): Promise<void> {
