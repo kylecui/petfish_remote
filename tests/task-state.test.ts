@@ -134,3 +134,94 @@ describe('Task State Machine', () => {
     expect(() => taskManager.updateStatus(id, 'created')).toThrow('Invalid task state transition');
   });
 });
+
+describe('PolicyEngine integration', () => {
+  it('should deny dispatch when target matches blockedTargets', async () => {
+    const storage = new Storage(':memory:');
+    storage.init();
+    const projectRegistry = new ProjectRegistry([{
+      id: 'secret-proj', name: 'Secret', runtime: 'connector', path: '/opt/.env/secret',
+      default_mode: 'read_only', allowed_users: ['u1'], readme_files: [], test_commands: {},
+      risk_profile: 'default', secrets_policy: 'mask',
+    }]);
+    const policyEngine = new PolicyEngine({
+      blockedTargets: ['.env'],
+      highRiskProfiles: [],
+      requireApprovalActions: [],
+    });
+    const tm = new TaskManager(storage, new RuntimeRouter([]), projectRegistry, policyEngine);
+
+    const task = tm.createTask({ project_id: 'secret-proj', user_id: 'u1', instruction: 'read', mode: 'read_only' });
+    const result = await tm.dispatchTask(task.task_id);
+
+    expect(result.output).toContain('Policy denied');
+    expect(result.exitCode).toBe(-1);
+    expect(tm.getTask(task.task_id)?.status).toBe('failed');
+  });
+
+  it('should require approval for high-risk profiles', async () => {
+    const storage = new Storage(':memory:');
+    storage.init();
+    const projectRegistry = new ProjectRegistry([{
+      id: 'risky-proj', name: 'Risky', runtime: 'connector', path: '/opt/risky',
+      default_mode: 'read_only', allowed_users: ['u1'], readme_files: [], test_commands: {},
+      risk_profile: 'kernel-ebpf', secrets_policy: 'mask',
+    }]);
+    const policyEngine = new PolicyEngine({
+      blockedTargets: [],
+      highRiskProfiles: ['kernel-ebpf'],
+      requireApprovalActions: [],
+    });
+    const tm = new TaskManager(storage, new RuntimeRouter([]), projectRegistry, policyEngine);
+
+    const task = tm.createTask({ project_id: 'risky-proj', user_id: 'u1', instruction: 'deploy', mode: 'read_only' });
+    const result = await tm.dispatchTask(task.task_id);
+
+    expect(result.output).toContain('requires approval');
+    expect(result.exitCode).toBe(-1);
+    expect(tm.getTask(task.task_id)?.status).toBe('waiting_approval');
+  });
+
+  it('should require approval for write/exec action types', async () => {
+    const storage = new Storage(':memory:');
+    storage.init();
+    const projectRegistry = new ProjectRegistry([{
+      id: 'safe-proj', name: 'Safe', runtime: 'connector', path: '/opt/safe',
+      default_mode: 'read_only', allowed_users: ['u1'], readme_files: [], test_commands: {},
+      risk_profile: 'default', secrets_policy: 'mask',
+    }]);
+    const policyEngine = new PolicyEngine({
+      blockedTargets: [],
+      highRiskProfiles: [],
+      requireApprovalActions: ['write', 'exec'],
+    });
+    const tm = new TaskManager(storage, new RuntimeRouter([]), projectRegistry, policyEngine);
+
+    const task = tm.createTask({ project_id: 'safe-proj', user_id: 'u1', instruction: 'edit file', mode: 'edit_guarded' });
+    const result = await tm.dispatchTask(task.task_id);
+
+    expect(result.output).toContain('requires approval');
+    expect(tm.getTask(task.task_id)?.status).toBe('waiting_approval');
+  });
+
+  it('should deny a waiting task', () => {
+    const storage = new Storage(':memory:');
+    storage.init();
+    const projectRegistry = new ProjectRegistry([{
+      id: 'proj', name: 'P', runtime: 'connector', path: '/opt/p',
+      default_mode: 'read_only', allowed_users: ['u1'], readme_files: [], test_commands: {},
+      risk_profile: 'kernel-ebpf', secrets_policy: 'mask',
+    }]);
+    const policyEngine = new PolicyEngine({
+      blockedTargets: [],
+      highRiskProfiles: ['kernel-ebpf'],
+      requireApprovalActions: [],
+    });
+    const tm = new TaskManager(storage, new RuntimeRouter([]), projectRegistry, policyEngine);
+
+    const task = tm.createTask({ project_id: 'proj', user_id: 'u1', instruction: 'x', mode: 'read_only' });
+    void tm.dispatchTask(task.task_id);
+    tm.denyTask(task.task_id);
+    expect(tm.getTask(task.task_id)?.status).toBe('cancelled');
+  });
+});

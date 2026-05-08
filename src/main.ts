@@ -406,9 +406,51 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     case 'approve': {
       const approvalId = parsed.args[0];
       if (!approvalId) {
-        responseText = 'Usage: /pf approve <approval_id>';
+        responseText = 'Usage: /pf approve <id>';
         break;
       }
+
+      const approveTask = taskManager.getTask(approvalId);
+      if (approveTask?.status === 'waiting_approval') {
+        const batcher = new OutputBatcher(
+          (text, plain) => {
+            const a = getAdapterForEvent(event);
+            if (!a) return Promise.resolve();
+            return a.sendMessage({
+              platform: event.platform,
+              chat_id: event.chat_id,
+              message_type: plain ? 'text' : 'markdown',
+              text,
+            }).catch((err) => {
+              console.error(`[batcher] Failed to send output:`, err);
+            });
+          },
+          approvalId,
+          undefined,
+          undefined,
+          approveTask.project_id,
+        );
+
+        const typingInterval = setInterval(() => {
+          const a = getAdapterForEvent(event);
+          if (a) void a.sendTyping(event.chat_id);
+        }, 4000);
+
+        taskManager.approveTask(approvalId, (chunk) => {
+          batcher.append(chunk);
+        }).then((result) => {
+          clearInterval(typingInterval);
+          void batcher.complete(result.exitCode);
+        }).catch((err: unknown) => {
+          clearInterval(typingInterval);
+          const msg = err instanceof Error ? err.message : String(err);
+          void batcher.fail(msg);
+        });
+
+        responseText = `✅ Approved task ${approvalId}. Executing...`;
+        break;
+      }
+
       const permCtx = permissionIdToContext.get(approvalId);
       if (!permCtx) {
         responseText = `Approval not found or already handled: ${approvalId}`;
@@ -424,9 +466,17 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     case 'deny': {
       const denyId = parsed.args[0];
       if (!denyId) {
-        responseText = 'Usage: /pf deny <approval_id>';
+        responseText = 'Usage: /pf deny <id>';
         break;
       }
+
+      const denyTask = taskManager.getTask(denyId);
+      if (denyTask?.status === 'waiting_approval') {
+        taskManager.denyTask(denyId);
+        responseText = `❌ Task ${denyId} denied and cancelled.`;
+        break;
+      }
+
       const denyCtx = permissionIdToContext.get(denyId);
       if (!denyCtx) {
         responseText = `Approval not found or already handled: ${denyId}`;

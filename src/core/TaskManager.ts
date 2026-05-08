@@ -4,8 +4,8 @@ import { OpenCodeCliRunner } from '../opencode/OpenCodeCliRunner.js';
 import type { OutputStream } from '../runtime/RuntimeConnector.js';
 import type { RuntimeRouter } from '../runtime/RuntimeRouter.js';
 import type { Storage } from '../storage/sqlite.js';
-import type { ExecutionMode, TaskRecord, TaskStatus } from '../types.js';
-import type { PolicyEngine } from './PolicyEngine.js';
+import type { ExecutionMode, ProjectConfig, TaskRecord, TaskStatus } from '../types.js';
+import type { PolicyAction, PolicyEngine } from './PolicyEngine.js';
 import type { ProjectRegistry } from './ProjectRegistry.js';
 
 export interface CreateTaskParams {
@@ -33,15 +33,21 @@ const VALID_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   timeout: [],
 };
 
+const MODE_TO_ACTION_TYPE: Record<ExecutionMode, PolicyAction['type']> = {
+  read_only: 'read',
+  suggest: 'read',
+  edit_guarded: 'write',
+  execute_guarded: 'exec',
+  admin: 'exec',
+};
+
 export class TaskManager {
   public constructor(
     private readonly storage: Storage,
     private readonly runtimeRouter: RuntimeRouter,
     private readonly projectRegistry: ProjectRegistry,
     private readonly policyEngine: PolicyEngine,
-  ) {
-    void this.policyEngine;
-  }
+  ) {}
 
   public createTask(params: CreateTaskParams): TaskRecord {
     const now = new Date().toISOString();
@@ -75,15 +81,52 @@ export class TaskManager {
       throw new Error(`Project not found: ${task.project_id}`);
     }
 
-    let connector: ReturnType<RuntimeRouter['getConnector']>;
+    const policyDecision = this.policyEngine.evaluate({
+      type: MODE_TO_ACTION_TYPE[task.mode],
+      target: project.path,
+      project_profile: project.risk_profile,
+    });
+
+    if (policyDecision === 'deny') {
+      this.updateStatus(taskId, 'failed');
+      return { output: `Policy denied: task target or profile is blocked.`, exitCode: -1 };
+    }
+
+    if (policyDecision === 'require_approval') {
+      this.updateStatus(taskId, 'waiting_approval');
+      this.storage.updateTask({
+        ...this.storage.getTask(taskId)!,
+        risk_level: 'high',
+        updated_at: new Date().toISOString(),
+      });
+      return { output: `Task requires approval. Use /pf approve ${taskId} to proceed.`, exitCode: -1 };
+    }
+
     try {
-      connector = this.runtimeRouter.getConnector(project.runtime);
+      this.runtimeRouter.getConnector(project.runtime);
     } catch {
       this.updateStatus(taskId, 'queued');
       return { output: `Runtime "${project.runtime}" is not connected. Task queued.`, exitCode: -1 };
     }
 
     this.updateStatus(taskId, 'running');
+    return this.executeTask(taskId, task, project, onOutput);
+  }
+
+  private async executeTask(
+    taskId: string,
+    task: TaskRecord,
+    project: ProjectConfig,
+    onOutput?: (chunk: string, stream: OutputStream) => void,
+  ): Promise<TaskDispatchResult> {
+    let connector: ReturnType<RuntimeRouter['getConnector']>;
+    try {
+      connector = this.runtimeRouter.getConnector(project.runtime);
+    } catch {
+      this.updateStatus(taskId, 'failed');
+      return { output: `Runtime "${project.runtime}" is not connected.`, exitCode: -1 };
+    }
+
     console.log(`[dispatch] taskId=${taskId} project=${task.project_id} runtime=${project.runtime} connector=${connector.id}(${connector.type})`);
 
     const runner = new OpenCodeCliRunner(connector);
@@ -129,6 +172,39 @@ export class TaskManager {
   }
 
   public cancelTask(taskId: string): void {
+    this.updateStatus(taskId, 'cancelled');
+  }
+
+  public approveTask(
+    taskId: string,
+    onOutput?: (chunk: string, stream: OutputStream) => void,
+  ): Promise<TaskDispatchResult> {
+    const task = this.storage.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    if (task.status !== 'waiting_approval') {
+      throw new Error(`Task ${taskId} is not waiting for approval (status: ${task.status})`);
+    }
+    this.updateStatus(taskId, 'running');
+
+    const project = this.projectRegistry.getProject(task.project_id);
+    if (!project) {
+      this.updateStatus(taskId, 'failed');
+      return Promise.resolve({ output: `Project not found: ${task.project_id}`, exitCode: -1 });
+    }
+
+    return this.executeTask(taskId, task, project, onOutput);
+  }
+
+  public denyTask(taskId: string): void {
+    const task = this.storage.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    if (task.status !== 'waiting_approval') {
+      throw new Error(`Task ${taskId} is not waiting for approval (status: ${task.status})`);
+    }
     this.updateStatus(taskId, 'cancelled');
   }
 }
