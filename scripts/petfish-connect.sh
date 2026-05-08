@@ -234,6 +234,7 @@ do_status() {
 
 do_logs() {
   local config_path="${1:-$(pwd)/connector.yaml}"
+  local line_count="${2:-50}"
   local log_file
   log_file="$(get_log_file "$config_path")"
 
@@ -242,7 +243,7 @@ do_logs() {
     exit 1
   fi
 
-  tail -50 "$log_file"
+  tail -"$line_count" "$log_file"
 }
 
 do_setup() {
@@ -485,7 +486,16 @@ case "${1:-}" in
     do_status "${2:-$(pwd)/connector.yaml}"
     ;;
   logs)
-    do_logs "${2:-$(pwd)/connector.yaml}"
+    _log_lines=50
+    _log_config="$(pwd)/connector.yaml"
+    shift
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -n) _log_lines="$2"; shift 2 ;;
+        *)  _log_config="$1"; shift ;;
+      esac
+    done
+    do_logs "$_log_config" "$_log_lines"
     ;;
   *)
     echo "Usage: petfish-connect.sh {setup|start|stop|restart|status|logs} [connector.yaml]"
@@ -496,7 +506,7 @@ case "${1:-}" in
     echo "  stop    — Stop running connector"
     echo "  restart — Stop and start"
     echo "  status  — Show if running + recent log"
-    echo "  logs    — Show last 50 log lines"
+    echo "  logs    — Show last 50 log lines (use -n <count> for custom)"
     echo ""
     echo "Setup:"
     echo "  petfish-connect.sh setup --token <token> --project-id <id> [--project-path /path] [--server url]"
