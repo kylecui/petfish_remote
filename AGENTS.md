@@ -1,3 +1,27 @@
+# PetFish Remote — 开发规约
+
+## Development Gotchas
+
+### Task状态机有转换守卫
+
+`TaskManager.updateStatus()` 通过 `VALID_TRANSITIONS` 表校验状态转换合法性。终态（completed / failed / cancelled / timeout）不接受任何出站转换。
+
+**禁止**直接调用 `storage.updateTask()` 修改 status 字段——这会绕过守卫。所有状态变更必须经过 `updateStatus()`。
+
+### PolicyEngine 是活跃的
+
+`TaskManager.dispatchTask()` 在执行前调用 `policyEngine.evaluate()`，根据结果 deny / require_approval / allow。`policyConfig` 当前硬编码在 `main.ts`（blockedTargets: `['.env', 'id_rsa', 'secret']`，requireApprovalActions: `['write', 'exec', 'docker']`）。修改这些值会直接影响所有任务的准入。
+
+### OutputBatcher 必须显式传入 renderPolicy
+
+`OutputBatcher` 构造时默认使用 `telegramRenderPolicy`（4096字符截断）。Feishu 限制为 30000 字符。新增平台适配器时，必须在创建 batcher 处根据 `event.platform` 传入对应 policy，否则消息会被错误截断。
+
+### grammY bot.start() 是 fire-and-forget
+
+`bot.start()` 进入 long-poll 循环，Promise 仅在 `bot.stop()` 调用后 resolve。不能 `await bot.start()` 做初始化完成判断——必须在后台执行（`void bot.start()`），用独立回调追踪状态。
+
+---
+
 <!-- BEGIN pack: repo-deploy-ops-skill-pack -->
 # Repo Deployment & Operations Rules
 
