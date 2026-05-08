@@ -101,6 +101,10 @@ export class ConnectorRegistry {
     return [...this.connectors.values()];
   }
 
+  public listPending(): Array<Omit<PendingReconnect, 'timer'>> {
+    return [...this.pendingReconnects.values()].map(({ timer: _, ...rest }) => rest);
+  }
+
   public removeBySocket(ws: WebSocket): string | undefined {
     for (const [id, info] of this.connectors.entries()) {
       if (info.ws === ws) {

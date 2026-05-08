@@ -653,9 +653,13 @@ process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
 for (const [name, a] of adapterMap.entries()) {
-  void a.start().catch((err: unknown) => {
+  if (gateway) gateway.setAdapterStatus(name, 'starting');
+  void a.start().then(() => {
+    if (gateway) gateway.setAdapterStatus(name, 'connected');
+  }).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[${name}] Adapter failed to start: ${msg}`);
+    if (gateway) gateway.setAdapterStatus(name, `error: ${msg}`);
   });
 }
 

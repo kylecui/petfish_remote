@@ -178,6 +178,14 @@ export class RegistrationService {
     }
   }
 
+  public getRegisteredUsers(): Array<{ userId: string; projects: string[] }> {
+    const result: Array<{ userId: string; projects: string[] }> = [];
+    for (const [userId, projects] of this.userProjects) {
+      result.push({ userId, projects: [...projects] });
+    }
+    return result;
+  }
+
   public getPersistedTokens(): string[] {
     return [...this.connectorTokens.values()];
   }

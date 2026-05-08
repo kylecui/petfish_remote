@@ -43,6 +43,8 @@ export class ConnectorGateway extends EventEmitter {
   private readonly lastPongAt = new Map<WebSocket, number>();
   private readonly STALE_TIMEOUT_MS = 30_000;
   private readonly pendingMessages = new Map<string, Envelope[]>();
+  private readonly adapterStatuses = new Map<string, string>();
+  private readonly startedAt = Date.now();
 
   public constructor(private readonly options: GatewayOptions) {
     super();
@@ -79,6 +81,11 @@ export class ConnectorGateway extends EventEmitter {
       return;
     }
 
+    if (req.method === 'GET' && req.url === '/api/status') {
+      this.handleStatusApi(req, res);
+      return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ service: 'petfish-remote-ws', version: SERVER_VERSION, connectors: this.registry.list().length }));
   }
@@ -87,6 +94,10 @@ export class ConnectorGateway extends EventEmitter {
 
   public setCardActionHandler(handler: (payload: unknown) => unknown): void {
     this.cardActionHandler = handler;
+  }
+
+  public setAdapterStatus(name: string, status: string): void {
+    this.adapterStatuses.set(name, status);
   }
 
   private handleWebhookCard(req: IncomingMessage, res: ServerResponse): void {
@@ -110,6 +121,43 @@ export class ConnectorGateway extends EventEmitter {
         res.end(JSON.stringify({ error: 'invalid json' }));
       }
     });
+  }
+
+  private handleStatusApi(req: IncomingMessage, res: ServerResponse): void {
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (!adminKey) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Status endpoint not configured (ADMIN_API_KEY not set)' }));
+      return;
+    }
+
+    const providedKey = req.headers['x-admin-key'];
+    if (providedKey !== adminKey) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const connectors = this.registry.list().map(({ ws: _, ...rest }) => rest);
+    const pendingReconnects = this.registry.listPending();
+    const registeredUsers = this.options.registrationService?.getRegisteredUsers() ?? [];
+
+    const adapters: Record<string, string> = {};
+    for (const [name, status] of this.adapterStatuses) {
+      adapters[name] = status;
+    }
+
+    const body = {
+      version: SERVER_VERSION,
+      uptime: Math.floor((Date.now() - this.startedAt) / 1000),
+      adapters,
+      connectors,
+      registeredUsers,
+      pendingReconnects,
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body, null, 2));
   }
 
   private handleRegisterApi(req: IncomingMessage, res: ServerResponse): void {
