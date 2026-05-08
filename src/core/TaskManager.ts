@@ -20,6 +20,19 @@ export interface TaskDispatchResult {
   exitCode: number;
 }
 
+/** Valid state transitions for the task state machine. Terminal states have no outbound edges. */
+const VALID_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
+  created: ['queued', 'running', 'failed', 'waiting_approval', 'cancelled'],
+  queued: ['running', 'cancelled', 'failed'],
+  running: ['completed', 'failed', 'cancelled', 'waiting_approval', 'waiting_user_input', 'timeout'],
+  waiting_approval: ['running', 'cancelled', 'failed'],
+  waiting_user_input: ['running', 'cancelled', 'failed'],
+  completed: [],
+  failed: [],
+  cancelled: [],
+  timeout: [],
+};
+
 export class TaskManager {
   public constructor(
     private readonly storage: Storage,
@@ -62,7 +75,7 @@ export class TaskManager {
       throw new Error(`Project not found: ${task.project_id}`);
     }
 
-    let connector;
+    let connector: ReturnType<RuntimeRouter['getConnector']>;
     try {
       connector = this.runtimeRouter.getConnector(project.runtime);
     } catch {
@@ -104,6 +117,14 @@ export class TaskManager {
     if (!existing) {
       throw new Error(`Task not found: ${taskId}`);
     }
+
+    const allowed = VALID_TRANSITIONS[existing.status];
+    if (!allowed.includes(status)) {
+      throw new Error(
+        `Invalid task state transition: ${existing.status} → ${status} (task ${taskId})`,
+      );
+    }
+
     this.storage.updateTask({ ...existing, status, updated_at: new Date().toISOString() });
   }
 
