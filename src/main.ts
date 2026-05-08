@@ -193,6 +193,10 @@ if (config.gateway.enabled) {
 
   gateway.on('task:question', (connectorId: string, payload: TaskQuestionPayload) => {
     questionIdToContext.set(payload.questionId, { connectorId, taskId: payload.taskId });
+    if (!taskIdToChatId.has(payload.taskId)) {
+      console.log(`[question] Skipping relay for ${payload.questionId} — taskId=${payload.taskId} has no IM origin`);
+      return;
+    }
     const target = resolveChatId(payload.taskId, connectorId);
     if (!target) {
       console.warn(`[question] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);
@@ -206,6 +210,10 @@ if (config.gateway.enabled) {
 
   gateway.on('task:permission', (connectorId: string, payload: TaskPermissionPayload) => {
     permissionIdToContext.set(payload.permissionId, { connectorId, taskId: payload.taskId });
+    if (!taskIdToChatId.has(payload.taskId)) {
+      console.log(`[permission] Skipping relay for ${payload.permissionId} — taskId=${payload.taskId} has no IM origin`);
+      return;
+    }
     const target = resolveChatId(payload.taskId, connectorId);
     if (!target) {
       console.warn(`[permission] No chatId found for taskId=${payload.taskId} connectorId=${connectorId}`);

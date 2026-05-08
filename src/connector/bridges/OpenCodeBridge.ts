@@ -46,7 +46,6 @@ export class OpenCodeBridge implements AgentBridge {
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
-  private lastActiveTaskId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
   private onQuestion: QuestionCallback | undefined;
@@ -194,7 +193,6 @@ export class OpenCodeBridge implements AgentBridge {
     };
 
     this.pending.set(taskId, entry);
-    this.lastActiveTaskId = taskId;
     this.pendingCorrelation = taskId;
 
     const port = Number(this.opencodePort);
@@ -669,7 +667,10 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      taskId = this.lastActiveTaskId ?? `question_${questionId}`;
+      // No active IM task — this question likely originated from TUI.
+      // Do not fall back to lastActiveTaskId; that would route a TUI
+      // question to the last IM chat (question leak).
+      return;
     }
 
     this.cancelSettleTimer(taskId);
@@ -711,7 +712,10 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      taskId = this.lastActiveTaskId ?? `permission_${permissionId}`;
+      // No active IM task — this permission request likely originated from TUI.
+      // Do not fall back to lastActiveTaskId; that would route a TUI
+      // permission request to the last IM chat.
+      return;
     }
 
     this.cancelSettleTimer(taskId);
