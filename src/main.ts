@@ -16,6 +16,8 @@ import { LocalRuntime } from './runtime/LocalRuntime.js';
 import { RemoteRuntime } from './runtime/RemoteRuntime.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
 import { OutputBatcher } from './render/OutputBatcher.js';
+import { telegramRenderPolicy } from './render/renderPolicy.js';
+import { feishuRenderPolicy } from './adapters/feishu/feishuRenderPolicy.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
@@ -248,6 +250,8 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     }).catch((err) => console.error(`[dispatch] Failed to send acceptance message:`, err));
   }
 
+  const renderPolicy = event.platform === 'feishu' ? feishuRenderPolicy : telegramRenderPolicy;
+
   const batcher = new OutputBatcher(
     (text, plain) => {
       const a = getAdapterForEvent(event);
@@ -266,6 +270,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     undefined,
     undefined,
     projectId,
+    renderPolicy,
   );
 
   const typingInterval = setInterval(() => {
@@ -412,6 +417,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
       const approveTask = taskManager.getTask(approvalId);
       if (approveTask?.status === 'waiting_approval') {
+        const approvePolicy = event.platform === 'feishu' ? feishuRenderPolicy : telegramRenderPolicy;
         const batcher = new OutputBatcher(
           (text, plain) => {
             const a = getAdapterForEvent(event);
@@ -429,6 +435,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
           undefined,
           undefined,
           approveTask.project_id,
+          approvePolicy,
         );
 
         const typingInterval = setInterval(() => {
