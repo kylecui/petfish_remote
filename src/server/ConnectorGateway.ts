@@ -45,6 +45,7 @@ export class ConnectorGateway extends EventEmitter {
   private readonly pendingMessages = new Map<string, Envelope[]>();
   private readonly adapterStatuses = new Map<string, string>();
   private readonly startedAt = Date.now();
+  private projectListProvider?: () => Array<{ id: string; name: string; runtime: string; path: string; allowed_users: string[] }>;
 
   public constructor(private readonly options: GatewayOptions) {
     super();
@@ -100,6 +101,10 @@ export class ConnectorGateway extends EventEmitter {
     this.adapterStatuses.set(name, status);
   }
 
+  public setProjectListProvider(fn: () => Array<{ id: string; name: string; runtime: string; path: string; allowed_users: string[] }>): void {
+    this.projectListProvider = fn;
+  }
+
   private handleWebhookCard(req: IncomingMessage, res: ServerResponse): void {
     let body = '';
     req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
@@ -152,6 +157,7 @@ export class ConnectorGateway extends EventEmitter {
       uptime: Math.floor((Date.now() - this.startedAt) / 1000),
       adapters,
       connectors,
+      projects: this.projectListProvider?.() ?? [],
       registeredUsers,
       pendingReconnects,
     };

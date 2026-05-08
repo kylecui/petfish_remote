@@ -114,6 +114,12 @@ if (config.gateway.enabled) {
     registrationService,
   });
 
+  gateway.setProjectListProvider(() =>
+    projectRegistry.listProjects().map(({ id, name, runtime, path, allowed_users }) => ({
+      id, name, runtime, path, allowed_users,
+    })),
+  );
+
   for (const token of registrationService.getPersistedTokens()) {
     auth.addWildcardToken(token);
   }
