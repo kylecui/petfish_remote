@@ -51,6 +51,7 @@ export interface IMAdapter {
   sendTyping(chatId: string): Promise<void>;
   sendInteraction(request: OutboundInteraction): Promise<void>;
   hasPendingInteraction(chatId: string): boolean;
+  clearPendingInteraction(chatId: string): void;
   onEvent(handler: AdapterEventHandler): Unsubscribe;
 }
 
@@ -82,4 +83,5 @@ export abstract class BaseIMAdapter implements IMAdapter {
   abstract sendTyping(chatId: string): Promise<void>;
   abstract sendInteraction(request: OutboundInteraction): Promise<void>;
   abstract hasPendingInteraction(chatId: string): boolean;
+  abstract clearPendingInteraction(chatId: string): void;
 }

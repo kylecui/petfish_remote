@@ -112,6 +112,10 @@ export class FeishuAdapter extends BaseIMAdapter {
     return this.pendingInteractions.has(chatId);
   }
 
+  public clearPendingInteraction(chatId: string): void {
+    this.pendingInteractions.delete(chatId);
+  }
+
   private isDuplicate(messageId: string): boolean {
     if (!messageId) return false;
     if (this.recentMessageIds.has(messageId)) return true;
@@ -541,14 +545,19 @@ export class FeishuAdapter extends BaseIMAdapter {
       elements,
     };
 
-    await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: chatId,
-        msg_type: 'interactive',
-        content: JSON.stringify(card),
-      },
-    });
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      this.pendingInteractions.delete(chatId);
+      console.error(`[feishu] sendQuestion failed, cleared pending for chat=${chatId}:`, err);
+    }
   }
 
   private async sendPermission(chatId: string, payload: TaskPermissionPayload): Promise<void> {
@@ -602,13 +611,18 @@ export class FeishuAdapter extends BaseIMAdapter {
       ],
     };
 
-    await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: chatId,
-        msg_type: 'interactive',
-        content: JSON.stringify(card),
-      },
-    });
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      this.pendingInteractions.delete(chatId);
+      console.error(`[feishu] sendPermission failed, cleared pending for chat=${chatId}:`, err);
+    }
   }
 }

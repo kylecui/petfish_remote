@@ -367,6 +367,14 @@ export class TelegramAdapter extends BaseIMAdapter {
     return this.chatToPendingQuestion.has(chatId);
   }
 
+  public clearPendingInteraction(chatId: string): void {
+    const questionId = this.chatToPendingQuestion.get(chatId);
+    if (questionId) {
+      this.pendingQuestions.delete(questionId);
+      this.chatToPendingQuestion.delete(chatId);
+    }
+  }
+
   public handleCustomTextAnswer(chatId: string, text: string): boolean {
     const questionId = this.chatToPendingQuestion.get(chatId);
     if (!questionId) return false;

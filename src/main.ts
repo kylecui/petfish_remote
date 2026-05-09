@@ -290,9 +290,13 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     batcher.append(chunk);
   }).then((result) => {
     clearInterval(typingInterval);
+    const a = getAdapterForEvent(event);
+    if (a) a.clearPendingInteraction(event.chat_id);
     void batcher.complete(result.exitCode);
   }).catch((err: unknown) => {
     clearInterval(typingInterval);
+    const a = getAdapterForEvent(event);
+    if (a) a.clearPendingInteraction(event.chat_id);
     const msg = err instanceof Error ? err.message : String(err);
     void batcher.fail(msg);
   });
@@ -308,6 +312,9 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     if (eventAdapter instanceof TelegramAdapter) {
       const handled = eventAdapter.handleCustomTextAnswer(event.chat_id, event.text);
       if (handled) return;
+    } else {
+      console.log(`[${event.platform}] Clearing stale pending interaction for chat=${event.chat_id} — user sent new message`);
+      eventAdapter.clearPendingInteraction(event.chat_id);
     }
   }
 
