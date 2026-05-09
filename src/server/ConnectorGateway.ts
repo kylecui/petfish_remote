@@ -41,8 +41,9 @@ export class ConnectorGateway extends EventEmitter {
   public readonly registry = new ConnectorRegistry();
   private pingTimer: NodeJS.Timeout | undefined;
   private readonly lastPongAt = new Map<WebSocket, number>();
-  private readonly STALE_TIMEOUT_MS = 30_000;
+  private readonly STALE_TIMEOUT_MS = 90_000;
   private readonly pendingMessages = new Map<string, Envelope[]>();
+  private readonly recentlySentIds = new Map<string, Set<string>>();
   private readonly adapterStatuses = new Map<string, string>();
   private readonly startedAt = Date.now();
   private projectListProvider?: () => Array<{ id: string; name: string; runtime: string; path: string; allowed_users: string[] }>;
@@ -500,11 +501,34 @@ export class ConnectorGateway extends EventEmitter {
   private drainPendingMessages(connectorId: string, ws: WebSocket): void {
     const queue = this.pendingMessages.get(connectorId);
     if (!queue || queue.length === 0) return;
-    console.log(`[gateway] Draining ${queue.length} queued messages for ${connectorId}`);
+
+    let sent = 0;
+    let skipped = 0;
+    const seen = this.recentlySentIds.get(connectorId) ?? new Set<string>();
+
     for (const envelope of queue) {
+      if (seen.has(envelope.id)) {
+        skipped++;
+        continue;
+      }
+      seen.add(envelope.id);
       ws.send(JSON.stringify(envelope));
+      sent++;
     }
+
+    this.recentlySentIds.set(connectorId, seen);
     this.pendingMessages.delete(connectorId);
+
+    if (sent > 0 || skipped > 0) {
+      console.log(`[gateway] Drained ${sent} messages for ${connectorId} (${skipped} deduped)`);
+    }
+
+    // Prevent unbounded growth: trim old IDs after drain (keep last 500)
+    if (seen.size > 500) {
+      const arr = [...seen];
+      const trimmed = new Set(arr.slice(arr.length - 500));
+      this.recentlySentIds.set(connectorId, trimmed);
+    }
   }
 
   private sendError(ws: WebSocket, code: string, message: string): void {

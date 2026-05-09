@@ -39,9 +39,10 @@ export class ConnectorClient {
   private heartbeatTimer: NodeJS.Timeout | undefined;
   private pingTimer: NodeJS.Timeout | undefined;
   private stopped = false;
-  private readonly heartbeatTimeoutMs = 30_000;
+  private readonly heartbeatTimeoutMs = 90_000;
   private readonly clientPingIntervalMs = 15_000;
   private readonly sendBuffer: string[] = [];
+  private readonly bufferedIds = new Set<string>();
   private readonly maxBufferSize = 200;
   private readonly localVersion = readLocalVersion();
 
@@ -312,10 +313,11 @@ export class ConnectorClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data);
     } else {
-      // Buffer non-register messages for re-send after reconnect
       if (envelope.type !== MSG.REGISTER) {
+        if (this.bufferedIds.has(envelope.id)) return;
         if (this.sendBuffer.length < this.maxBufferSize) {
           this.sendBuffer.push(data);
+          this.bufferedIds.add(envelope.id);
         } else {
           console.warn(`Send buffer full (${this.maxBufferSize}), dropping message type=${envelope.type}`);
         }
@@ -331,10 +333,12 @@ export class ConnectorClient {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(data);
       } else {
-        // Connection lost again during drain, put it back
         this.sendBuffer.unshift(data);
         break;
       }
+    }
+    if (this.sendBuffer.length === 0) {
+      this.bufferedIds.clear();
     }
   }
 
