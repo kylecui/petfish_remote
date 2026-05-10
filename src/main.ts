@@ -63,7 +63,7 @@ const taskIdToChatId = new Map<string, { platform: Platform; chatId: string }>()
 const connectorIdToChatId = new Map<string, { platform: Platform; chatId: string }>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
-const sessionListCallbacks = new Map<string, { resolve: (sessions: Array<{ id: string; title: string; createdAt: number; updatedAt: number }>) => void }>();
+const sessionListCallbacks = new Map<string, { resolve: (sessions: Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }>) => void }>();
 
 function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
@@ -233,7 +233,7 @@ if (config.gateway.enabled) {
     void targetAdapter.sendInteraction({ type: 'permission', chatId: target.chatId, payload });
   });
 
-  gateway.on('session:list', (_connectorId: string, payload: { requestId: string; sessions: Array<{ id: string; title: string; createdAt: number; updatedAt: number }> }) => {
+  gateway.on('session:list', (_connectorId: string, payload: { requestId: string; sessions: Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }> }) => {
     const cb = sessionListCallbacks.get(payload.requestId);
     if (cb) {
       sessionListCallbacks.delete(payload.requestId);
@@ -715,7 +715,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         break;
       }
       const requestId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const sessionsPromise = new Promise<Array<{ id: string; title: string; createdAt: number; updatedAt: number }>>((resolve) => {
+      const sessionsPromise = new Promise<Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }>>((resolve) => {
         sessionListCallbacks.set(requestId, { resolve });
         setTimeout(() => {
           if (sessionListCallbacks.has(requestId)) {
@@ -745,7 +745,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       }
       const switchTarget = parsed.args[0]?.trim() ?? '';
       if (!switchTarget) {
-        responseText = 'Usage: /pf switch <session_id>';
+        responseText = 'Usage: /pf switch <slug>';
         break;
       }
       const switchConnector = gateway.registry.findByProject(session.project_id);

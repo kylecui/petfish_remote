@@ -16,6 +16,7 @@ export type AgentType = 'opencode' | 'gemini' | 'codex';
 
 export interface SessionInfo {
   id: string;
+  slug: string;
   title: string;
   createdAt: number;
   updatedAt: number;

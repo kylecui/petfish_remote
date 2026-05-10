@@ -327,14 +327,17 @@ export class OpenCodeBridge implements AgentBridge {
     if (!this.client) return [];
     try {
       const { data } = await this.client.session.list();
-      const sessions = data as Array<{ id: string; title?: string; time?: { created?: string; updated?: string } }> | undefined;
+      const sessions = data as Array<{ id: string; slug?: string; title?: string; parentID?: string; time?: { created?: string; updated?: string } }> | undefined;
       if (!sessions) return [];
-      return sessions.map((s) => ({
-        id: s.id,
-        title: s.title ?? '(untitled)',
-        createdAt: s.time?.created ? new Date(s.time.created).getTime() : 0,
-        updatedAt: s.time?.updated ? new Date(s.time.updated).getTime() : 0,
-      }));
+      return sessions
+        .filter((s) => !s.parentID)
+        .map((s) => ({
+          id: s.id,
+          slug: s.slug ?? '',
+          title: s.title ?? '(untitled)',
+          createdAt: s.time?.created ? new Date(s.time.created).getTime() : 0,
+          updatedAt: s.time?.updated ? new Date(s.time.updated).getTime() : 0,
+        }));
     } catch (err) {
       console.warn(`[OpenCodeBridge] listSessions failed: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -345,17 +348,27 @@ export class OpenCodeBridge implements AgentBridge {
     if (!this.opencodePort) {
       throw new Error('No opencode port available');
     }
-    const body = JSON.stringify({ sessionID: sessionId });
+    let resolvedId = sessionId;
+    if (!sessionId.startsWith('ses_')) {
+      const sessions = await this.listSessions();
+      const match = sessions.find((s) => s.slug === sessionId);
+      if (match) {
+        resolvedId = match.id;
+      } else {
+        throw new Error(`No session found with slug "${sessionId}"`);
+      }
+    }
+    const body = JSON.stringify({ sessionID: resolvedId });
     await fetch(`http://127.0.0.1:${this.opencodePort}/tui/select-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
       signal: AbortSignal.timeout(5000),
     });
-    this.sessionId = sessionId;
+    this.sessionId = resolvedId;
     this.lastCompletedAssistantId = undefined;
     this.sessionBusy = false;
-    console.log(`[OpenCodeBridge] switched to session=${sessionId}`);
+    console.log(`[OpenCodeBridge] switched to session=${resolvedId}`);
   }
 
   public stop(): void {

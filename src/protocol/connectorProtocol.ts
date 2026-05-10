@@ -146,6 +146,7 @@ export const sessionListResponsePayloadSchema = z.object({
   sessions: z.array(
     z.object({
       id: z.string(),
+      slug: z.string(),
       title: z.string(),
       createdAt: z.number(),
       updatedAt: z.number(),
