@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-10
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4c SSH runtime complete. Next: remaining P4c+ items.
+> Current stage: P4d self-daemonizing connector complete. Next: remaining P4d+ items.
 
 ---
 
@@ -197,6 +197,29 @@
 
 ---
 
+## ✅ P4d — Self-Daemonizing Connector (v0.4)
+
+**完成日期**: 2026-05-10
+
+- [x] `src/connector/daemon.ts`: Supervisor/watchdog using `child_process.fork()`
+- [x] `node main.js start <config>`: Fork detached supervisor, write PID file (`~/.petfish/connector.pid`), exit
+- [x] `node main.js stop`: Read PID, send SIGTERM, clean up PID file
+- [x] `node main.js status`: Check PID liveness
+- [x] Auto-respawn on crash with exponential backoff (1s → 2s → 4s → max 60s)
+- [x] Backoff resets after 5min stable runtime
+- [x] Worker logs redirected to `~/.petfish/connector.log`
+- [x] Backward-compatible direct mode preserved (`node main.js <config>`)
+- [x] Cross-platform: Windows/macOS/Linux/WSL via `detached: true` + `unref()`
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ Daemon start / status / double-start guard / crash recovery / clean stop — all passed
+- ✅ Worker logs appear in `~/.petfish/connector.log`
+- ✅ Auto-respawn after SIGKILL: detected crash, respawned in 1s, re-registered with bot server
+
+---
+
 ## P4d+ — Future (v0.5+)
 
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
@@ -231,3 +254,4 @@
 - [x] P4a: Changed files summary — `FileChange[]` threaded through full pipeline, `DiffRenderer` redesigned, `fetchFileChanges()` via SDK
 - [x] P4b: IM session cards & switching — `/pf sessions` + `/pf switch <n>`, protocol + bridge + gateway + renderer
 - [x] P4c: SSH runtime connector — `SshRuntime` with health check, streaming exec, timeout, process management
+- [x] P4d: Self-daemonizing connector — supervisor/watchdog, start/stop/status CLI, auto-respawn with backoff, log redirect
