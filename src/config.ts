@@ -44,7 +44,7 @@ const runtimeConfigSchema = z.object({
 const userConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  role: z.enum(['admin', 'operator', 'viewer']),
+  role: z.enum(['admin', 'operator', 'viewer', 'owner']).transform(r => r === 'owner' ? 'admin' as const : r),
   allowed_projects: z.array(z.string().min(1)),
   allowed_modes: z.array(executionModeSchema),
 });
