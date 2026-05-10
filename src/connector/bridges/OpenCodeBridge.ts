@@ -1,5 +1,6 @@
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
 import http from 'node:http';
+import { promisify } from 'node:util';
 
 import type {
   AgentBridge,
@@ -10,6 +11,9 @@ import type {
   QuestionCallback,
   PermissionCallback,
 } from './AgentBridge.js';
+import { createClient, type OpencodeClient } from './OpencodeClient.js';
+
+const execAsync = promisify(exec);
 
 export interface OpenCodeBridgeConfig {
   opencodeBin?: string;
@@ -34,6 +38,7 @@ export class OpenCodeBridge implements AgentBridge {
 
   private sessionId: string | undefined;
   private opencodePort: string | undefined;
+  private client: OpencodeClient | undefined;
   private readonly pending = new Map<string, PendingPrompt>();
   private readonly messageToTask = new Map<string, string>();
   private readonly localQueue: Array<{ taskId: string; instruction: string; onOutput: OutputCallback; onComplete: CompleteCallback; onFail: FailCallback }> = [];
@@ -48,6 +53,7 @@ export class OpenCodeBridge implements AgentBridge {
   private lastCompletedAssistantId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
+  private sessionBusy = false;
   private onQuestion: QuestionCallback | undefined;
   private onPermission: PermissionCallback | undefined;
 
@@ -66,55 +72,79 @@ export class OpenCodeBridge implements AgentBridge {
   }
 
   public async init(): Promise<void> {
-    this.opencodePort = this.discoverPort();
-    this.sessionId = this.discoverSession();
+    this.opencodePort = await this.discoverPort();
     if (!this.opencodePort) {
       throw new Error('Cannot discover opencode port. No running opencode instance found.');
     }
+    this.client = createClient(this.opencodePort);
+
+    this.sessionId = await this.discoverSession();
     if (!this.sessionId) {
       throw new Error('Cannot discover active session on opencode.');
     }
-    this.lastCompletedAssistantId = this.discoverLastAssistantMessage();
+    this.lastCompletedAssistantId = await this.discoverLastAssistantMessage();
     this.connectSSE();
     console.log(`OpenCodeBridge: session=${this.sessionId} port=${this.opencodePort} lastAssistant=${this.lastCompletedAssistantId ?? 'none'}`);
   }
 
-  private rediscover(): boolean {
+  private async rediscover(): Promise<boolean> {
     const oldPort = this.opencodePort;
-    const oldSession = this.sessionId;
 
-    this.opencodePort = this.discoverPort();
+    this.opencodePort = await this.discoverPort();
     if (!this.opencodePort) {
       console.warn('[OpenCodeBridge] rediscover: cannot find opencode port');
       return false;
     }
 
-    this.sessionId = this.discoverSession();
+    if (this.opencodePort !== oldPort) {
+      this.client = createClient(this.opencodePort);
+    }
+
+    if (this.sessionId) {
+      if (await this.validateSessionExists()) {
+        if (this.opencodePort !== oldPort) {
+          console.log(`[OpenCodeBridge] rediscovered port=${oldPort}→${this.opencodePort}, session=${this.sessionId} retained`);
+          if (this.sseRequest) {
+            this.sseRequest.destroy();
+            this.sseRequest = undefined;
+          }
+          this.connectSSE();
+        }
+        return true;
+      }
+      console.log(`[OpenCodeBridge] bound session ${this.sessionId} no longer exists, re-binding`);
+    }
+
+    this.sessionId = await this.discoverSession();
     if (!this.sessionId) {
       console.warn('[OpenCodeBridge] rediscover: cannot find active session');
       return false;
     }
 
-    if (this.opencodePort !== oldPort || this.sessionId !== oldSession) {
-      console.log(`[OpenCodeBridge] rediscovered: port=${oldPort}→${this.opencodePort} session=${oldSession}→${this.sessionId}`);
-      if (this.sseRequest) {
-        this.sseRequest.destroy();
-        this.sseRequest = undefined;
-      }
-      this.connectSSE();
+    console.log(`[OpenCodeBridge] rediscovered: port=${this.opencodePort} session=${this.sessionId}`);
+    if (this.sseRequest) {
+      this.sseRequest.destroy();
+      this.sseRequest = undefined;
     }
+    this.connectSSE();
     return true;
   }
 
   public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): boolean {
-    if (!this.sessionId || !this.opencodePort) {
-      if (!this.rediscover()) {
-        onFail(taskId, 'OpenCodeBridge not initialized and rediscovery failed');
-        return false;
-      }
-    }
-
     this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
+
+    if (!this.sessionId || !this.opencodePort || !this.client) {
+      void this.rediscover().then((ok) => {
+        if (ok) {
+          this.scheduleIdleDrain();
+        } else {
+          const item = this.localQueue.findIndex(q => q.taskId === taskId);
+          if (item !== -1) this.localQueue.splice(item, 1);
+          onFail(taskId, 'OpenCodeBridge not initialized and rediscovery failed');
+        }
+      });
+      return true;
+    }
 
     if (this.pending.size > 0) {
       console.log(`[OpenCodeBridge] IM task in-flight, queuing ${taskId}`);
@@ -147,8 +177,7 @@ export class OpenCodeBridge implements AgentBridge {
     if (this.localQueue.length === 0) return;
     if (this.pending.size > 0) return;
 
-    const busy = this.isSessionBusy();
-    if (busy) {
+    if (this.isSessionBusy()) {
       console.log('[OpenCodeBridge] Idle drain aborted — session still busy');
       return;
     }
@@ -159,22 +188,7 @@ export class OpenCodeBridge implements AgentBridge {
   }
 
   private isSessionBusy(): boolean {
-    if (this.pending.size > 0) return true;
-    return this.isSessionBusyByStatus();
-  }
-
-  private isSessionBusyByStatus(): boolean {
-    try {
-      const raw = execSync(
-        `curl -s --max-time 5 http://127.0.0.1:${this.opencodePort}/session/status`,
-        { encoding: 'utf-8', timeout: 8000 },
-      );
-      const statuses = JSON.parse(raw) as Record<string, { type: string }>;
-      const status = statuses[this.sessionId!];
-      return status?.type === 'busy';
-    } catch {
-      return false;
-    }
+    return this.pending.size > 0 || this.sessionBusy;
   }
 
   private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): void {
@@ -194,24 +208,6 @@ export class OpenCodeBridge implements AgentBridge {
 
     this.pending.set(taskId, entry);
     this.pendingCorrelation = taskId;
-
-    const port = Number(this.opencodePort);
-
-    const doPost = (path: string, body: string): Promise<number> => {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          req.destroy();
-          reject(new Error(`HTTP POST ${path} timed out after 10s`));
-        }, 10_000);
-        const req = http.request(
-          { hostname: '127.0.0.1', port, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-          (res) => { res.resume(); clearTimeout(timer); resolve(res.statusCode ?? 0); },
-        );
-        req.on('error', (err) => { clearTimeout(timer); reject(err); });
-        req.write(body);
-        req.end();
-      });
-    };
 
     const waitForCorrelation = (): Promise<boolean> => {
       return new Promise((resolve) => {
@@ -234,39 +230,40 @@ export class OpenCodeBridge implements AgentBridge {
 
     (async () => {
       try {
-        const clearBody = JSON.stringify({});
-        const appendBody = JSON.stringify({ text: instruction });
-        const submitBody = JSON.stringify({});
-
-        await doPost('/tui/clear-prompt', clearBody);
-        await doPost('/tui/append-prompt', appendBody);
-        await new Promise(r => setTimeout(r, 200));
+        if (!this.client || !this.sessionId) {
+          this.pendingCorrelation = undefined;
+          this.settle(taskId, 'No client or session');
+          return;
+        }
 
         for (let attempt = 0; attempt < this.maxSubmitRetries; attempt++) {
-          const status = await doPost('/tui/submit-prompt', submitBody);
-          console.log(`[OpenCodeBridge] TUI submit response: ${status} taskId=${taskId} attempt=${attempt + 1}`);
+          const { error } = await this.client.session.promptAsync({
+            path: { id: this.sessionId },
+            body: { parts: [{ type: 'text', text: instruction }] },
+          });
 
-          if (status !== 204 && status !== 200) {
+          if (error) {
+            console.log(`[OpenCodeBridge] promptAsync error: ${JSON.stringify(error)} taskId=${taskId} attempt=${attempt + 1}`);
+            if (attempt < this.maxSubmitRetries - 1) {
+              await new Promise(r => setTimeout(r, 500));
+              continue;
+            }
             this.pendingCorrelation = undefined;
-            this.settle(taskId, `TUI submit failed: ${status}`);
+            this.settle(taskId, `promptAsync failed after ${this.maxSubmitRetries} attempts`);
             return;
           }
+
+          console.log(`[OpenCodeBridge] promptAsync accepted taskId=${taskId} attempt=${attempt + 1}`);
 
           const correlated = await waitForCorrelation();
           if (correlated) {
             return;
           }
 
-          console.log(`[OpenCodeBridge] Submit not acknowledged after ${this.submitVerifyMs}ms, retry ${attempt + 2}/${this.maxSubmitRetries} taskId=${taskId}`);
-
-          if (attempt < this.maxSubmitRetries - 1) {
-            await doPost('/tui/clear-prompt', clearBody);
-            await doPost('/tui/append-prompt', appendBody);
-            await new Promise(r => setTimeout(r, 200));
-          }
+          console.log(`[OpenCodeBridge] prompt not acknowledged after ${this.submitVerifyMs}ms, retry ${attempt + 2}/${this.maxSubmitRetries} taskId=${taskId}`);
         }
 
-        console.log(`[OpenCodeBridge] Submit failed after ${this.maxSubmitRetries} retries, re-queuing taskId=${taskId}`);
+        console.log(`[OpenCodeBridge] prompt failed after ${this.maxSubmitRetries} retries, re-queuing taskId=${taskId}`);
         this.pendingCorrelation = undefined;
         this.pending.delete(taskId);
         this.localQueue.unshift({ taskId, instruction, onOutput, onComplete, onFail });
@@ -277,12 +274,13 @@ export class OpenCodeBridge implements AgentBridge {
         this.pendingCorrelation = undefined;
         this.pending.delete(taskId);
 
-        if (this.rediscover()) {
+        const ok = await this.rediscover();
+        if (ok) {
           console.log(`[OpenCodeBridge] rediscovered after failure, re-queuing taskId=${taskId}`);
           this.localQueue.unshift({ taskId, instruction, onOutput, onComplete, onFail });
           this.scheduleIdleDrain();
         } else {
-          onFail(taskId, `TUI submit error: ${errMsg} (rediscovery also failed)`);
+          onFail(taskId, `promptAsync error: ${errMsg} (rediscovery also failed)`);
         }
       }
     })();
@@ -298,25 +296,27 @@ export class OpenCodeBridge implements AgentBridge {
   }
 
   public async requestNewSession(): Promise<void> {
-    if (!this.opencodePort) {
-      console.warn('[OpenCodeBridge] requestNewSession: no opencode port');
+    if (!this.opencodePort || !this.client) {
+      console.warn('[OpenCodeBridge] requestNewSession: no opencode port or client');
       return;
     }
 
     try {
-      const raw = execSync(
-        `curl -s --max-time 5 -X POST http://127.0.0.1:${this.opencodePort}/session`,
-        { encoding: 'utf-8', timeout: 8000 },
-      );
-      const created = JSON.parse(raw) as { id?: string };
-      if (created.id) {
-        execSync(
-          `curl -s --max-time 5 -X POST -H "Content-Type: application/json" -d '${JSON.stringify({ sessionID: created.id })}' http://127.0.0.1:${this.opencodePort}/tui/select-session`,
-          { encoding: 'utf-8', timeout: 8000 },
-        );
+      const { data: created } = await this.client.session.create();
+      const sessionId = (created as { id?: string } | undefined)?.id;
+      if (sessionId) {
+        const body = JSON.stringify({ sessionID: sessionId });
+        await fetch(`http://127.0.0.1:${this.opencodePort}/tui/select-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(5000),
+        });
+        this.sessionId = sessionId;
+        this.lastCompletedAssistantId = undefined;
+        this.sessionBusy = false;
       }
-      this.rediscover();
-      console.log(`[OpenCodeBridge] new session created and selected, now on session=${this.sessionId}`);
+      console.log(`[OpenCodeBridge] new session created and bound, session=${this.sessionId}`);
     } catch (err) {
       console.warn(`[OpenCodeBridge] requestNewSession failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -324,6 +324,7 @@ export class OpenCodeBridge implements AgentBridge {
 
   public stop(): void {
     this.stopped = true;
+    this.sessionBusy = false;
     this.cancelIdleDrain();
     for (const timer of this.settleTimers.values()) clearTimeout(timer);
     this.settleTimers.clear();
@@ -391,8 +392,7 @@ export class OpenCodeBridge implements AgentBridge {
   private scheduleSSEReconnect(): void {
     if (this.stopped) return;
     this.sseReconnectTimer = setTimeout(() => {
-      this.rediscover();
-      this.connectSSE();
+      void this.rediscover().then(() => this.connectSSE());
     }, 3000);
   }
 
@@ -446,7 +446,7 @@ export class OpenCodeBridge implements AgentBridge {
       let taskId = info.parentID ? this.messageToTask.get(info.parentID) : undefined;
       if (!taskId && this.pending.size === 1) {
         const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
-        if (!onlyEntry.settled) taskId = onlyTaskId;
+        if (!onlyEntry.settled && onlyEntry.userMessageId && info.parentID === onlyEntry.userMessageId) taskId = onlyTaskId;
       }
       if (taskId) {
         this.settle(taskId, errorMsg);
@@ -459,7 +459,7 @@ export class OpenCodeBridge implements AgentBridge {
 
       if (!taskId && this.pending.size === 1) {
         const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
-        if (!onlyEntry.settled) {
+        if (!onlyEntry.settled && onlyEntry.userMessageId && info.parentID === onlyEntry.userMessageId) {
           taskId = onlyTaskId;
         }
       }
@@ -491,16 +491,6 @@ export class OpenCodeBridge implements AgentBridge {
 
     let taskId = part.messageID ? this.messageToTask.get(part.messageID) : undefined;
 
-    if (!taskId && this.pending.size === 1) {
-      const [onlyTaskId, onlyEntry] = [...this.pending.entries()][0];
-      if (!onlyEntry.settled && part.messageID !== onlyEntry.userMessageId) {
-        taskId = onlyTaskId;
-        if (part.messageID) {
-          this.messageToTask.set(part.messageID, taskId);
-        }
-      }
-    }
-
     if (!taskId) return;
 
     const entry = this.pending.get(taskId);
@@ -530,16 +520,22 @@ export class OpenCodeBridge implements AgentBridge {
     const sessionID = props['sessionID'] as string | undefined;
     if (sessionID !== this.sessionId) return;
 
+    this.sessionBusy = false;
+
     for (const [taskId, entry] of this.pending) {
       if (!entry.settled) {
         entry.settled = true;
         this.cleanup(taskId);
         if (entry.stdout.length === 0) {
-          const errorMsg = this.fetchLastError(entry.assistantMessageId);
-          if (errorMsg) {
-            entry.onFail(taskId, errorMsg);
-            continue;
-          }
+          void (async () => {
+            const errorMsg = await this.fetchLastError(entry.assistantMessageId);
+            if (errorMsg) {
+              entry.onFail(taskId, errorMsg);
+            } else {
+              entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
+            }
+          })();
+          continue;
         }
         entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
       }
@@ -553,7 +549,8 @@ export class OpenCodeBridge implements AgentBridge {
     const sessionID = props['sessionID'] as string | undefined;
     if (sessionID !== this.sessionId) return;
     const status = props['status'] as { type?: string } | undefined;
-    if (status?.type === 'busy') {
+    this.sessionBusy = status?.type === 'busy';
+    if (this.sessionBusy) {
       this.cancelIdleDrain();
       for (const taskId of this.settleTimers.keys()) {
         this.cancelSettleTimer(taskId);
@@ -597,10 +594,8 @@ export class OpenCodeBridge implements AgentBridge {
       const entry = this.pending.get(taskId);
       if (!entry || entry.settled) return;
 
-      // Only check HTTP session status — NOT pending.size (which would deadlock
-      // since this task is pending and we're trying to settle it).
-      if (this.isSessionBusyByStatus()) {
-        console.log(`[OpenCodeBridge] safety settle deferred — session still busy (HTTP) task=${taskId}`);
+      if (this.sessionBusy) {
+        console.log(`[OpenCodeBridge] safety settle deferred — session still busy task=${taskId}`);
         this.scheduleSettleOnComplete(taskId);
         return;
       }
@@ -667,9 +662,6 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      // No active IM task — this question likely originated from TUI.
-      // Do not fall back to lastActiveTaskId; that would route a TUI
-      // question to the last IM chat (question leak).
       return;
     }
 
@@ -712,9 +704,6 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     if (!taskId) {
-      // No active IM task — this permission request likely originated from TUI.
-      // Do not fall back to lastActiveTaskId; that would route a TUI
-      // permission request to the last IM chat.
       return;
     }
 
@@ -777,44 +766,39 @@ export class OpenCodeBridge implements AgentBridge {
     req.end();
   }
 
-  private discoverPort(): string | undefined {
+  private async discoverPort(): Promise<string | undefined> {
     const pid = process.env['OPENCODE_PID'];
 
     if (pid) {
       try {
-        const out = execSync(`ss -tlnp 2>/dev/null | grep "pid=${pid}"`, { encoding: 'utf-8' });
+        const { stdout: out } = await execAsync(`ss -tlnp 2>/dev/null | grep "pid=${pid}"`);
         const portMatch = out.match(/:(\d+)\s/);
         if (portMatch) return portMatch[1];
       } catch { /* fall through to scan */ }
     }
 
     const candidatePorts = process.platform !== 'win32'
-      ? this.findCandidatePortsUnix()
-      : this.findCandidatePortsWindows();
+      ? await this.findCandidatePortsUnix()
+      : await this.findCandidatePortsWindows();
 
     if (candidatePorts.length === 0) return undefined;
     if (candidatePorts.length === 1) return candidatePorts[0];
 
     if (this.cwd) {
-      const verified = this.verifyPortBySessionApi(candidatePorts);
+      const verified = await this.verifyPortBySessionApi(candidatePorts);
       if (verified) return verified;
     }
 
     return candidatePorts[0];
   }
 
-  /**
-   * Query each candidate port's GET /session. Match the `directory` field to this.cwd.
-   * Definitive cross-platform check — opencode's own API declares which project it serves.
-   */
-  private verifyPortBySessionApi(ports: string[]): string | undefined {
+  private async verifyPortBySessionApi(ports: string[]): Promise<string | undefined> {
     for (const port of ports) {
       try {
-        const raw = execSync(
-          `curl -s --max-time 2 http://127.0.0.1:${port}/session`,
-          { encoding: 'utf-8', timeout: 5000 },
-        );
-        const sessions = JSON.parse(raw) as Array<{ directory?: string }>;
+        const res = await fetch(`http://127.0.0.1:${port}/session`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        const sessions = await res.json() as Array<{ directory?: string }>;
         if (sessions.some(s => s.directory === this.cwd)) {
           console.log(`[OpenCodeBridge] verified port=${port} via /session API (directory=${this.cwd})`);
           return port;
@@ -824,29 +808,26 @@ export class OpenCodeBridge implements AgentBridge {
     return undefined;
   }
 
-  private findCandidatePortsUnix(): string[] {
-    let psOut: string;
+  private async findCandidatePortsUnix(): Promise<string[]> {
     try {
-      psOut = execSync(`ps -eo pid,args 2>/dev/null | grep "opencode.*--port" | grep -v grep`, { encoding: 'utf-8' });
+      const { stdout: psOut } = await execAsync(`ps -eo pid,args 2>/dev/null | grep "opencode.*--port" | grep -v grep`);
+      const ports: string[] = [];
+      for (const line of psOut.trim().split('\n')) {
+        const portMatch = line.match(/--port\s+(\d+)/);
+        if (portMatch && !ports.includes(portMatch[1])) {
+          ports.push(portMatch[1]);
+        }
+      }
+      return ports;
     } catch {
       return [];
     }
-
-    const ports: string[] = [];
-    for (const line of psOut.trim().split('\n')) {
-      const portMatch = line.match(/--port\s+(\d+)/);
-      if (portMatch && !ports.includes(portMatch[1])) {
-        ports.push(portMatch[1]);
-      }
-    }
-    return ports;
   }
 
-  private findCandidatePortsWindows(): string[] {
+  private async findCandidatePortsWindows(): Promise<string[]> {
     try {
-      const psOut = execSync(
+      const { stdout: psOut } = await execAsync(
         'powershell -NoProfile -Command "Get-Process opencode -ErrorAction SilentlyContinue | ForEach-Object { (Get-CimInstance Win32_Process -Filter \\"ProcessId=$($_.Id)\\").CommandLine }"',
-        { encoding: 'utf-8' },
       );
 
       const ports: string[] = [];
@@ -862,32 +843,41 @@ export class OpenCodeBridge implements AgentBridge {
     }
   }
 
-  private discoverSession(): string | undefined {
+  private async discoverSession(): Promise<string | undefined> {
     if (process.env['OPENCODE_SESSION_ID']) {
       return process.env['OPENCODE_SESSION_ID'];
     }
-    if (!this.opencodePort) return undefined;
+    if (!this.client) return undefined;
     try {
-      const sessionsRaw = execSync(`curl -s http://127.0.0.1:${this.opencodePort}/session`, { encoding: 'utf-8' });
-      const sessions = JSON.parse(sessionsRaw) as Array<{ id: string; time: { updated: number } }>;
-      if (sessions.length === 0) return undefined;
-      sessions.sort((a, b) => b.time.updated - a.time.updated);
-      return sessions[0].id;
+      const { data: sessions } = await this.client.session.list();
+      const list = sessions as Array<{ id: string; time: { updated: number } }> | undefined;
+      if (!list || list.length === 0) return undefined;
+      list.sort((a, b) => b.time.updated - a.time.updated);
+      return list[0].id;
     } catch {
       return undefined;
     }
   }
 
-  private discoverLastAssistantMessage(): string | undefined {
-    if (!this.opencodePort || !this.sessionId) return undefined;
+  private async validateSessionExists(): Promise<boolean> {
+    if (!this.client || !this.sessionId) return false;
     try {
-      const raw = execSync(
-        `curl -s --max-time 10 http://127.0.0.1:${this.opencodePort}/session/${this.sessionId}/message`,
-        { encoding: 'utf-8', timeout: 15000, maxBuffer: 50 * 1024 * 1024 },
-      );
-      const messages = JSON.parse(raw) as Array<{ info?: { id?: string; role?: string; time?: { completed?: number } } }>;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const info = messages[i].info;
+      const { data: sessions } = await this.client.session.list();
+      const list = sessions as Array<{ id: string }> | undefined;
+      return list?.some(s => s.id === this.sessionId) ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  private async discoverLastAssistantMessage(): Promise<string | undefined> {
+    if (!this.client || !this.sessionId) return undefined;
+    try {
+      const { data: messages } = await this.client.session.messages({ path: { id: this.sessionId } });
+      const list = messages as Array<{ info?: { id?: string; role?: string; time?: { completed?: number } } }> | undefined;
+      if (!list) return undefined;
+      for (let i = list.length - 1; i >= 0; i--) {
+        const info = list[i].info;
         if (info?.role === 'assistant' && info.id && info.time?.completed) {
           return info.id;
         }
@@ -899,20 +889,18 @@ export class OpenCodeBridge implements AgentBridge {
     }
   }
 
-  private fetchLastError(assistantMessageId: string | undefined): string | undefined {
-    if (!this.opencodePort || !this.sessionId) return undefined;
+  private async fetchLastError(assistantMessageId: string | undefined): Promise<string | undefined> {
+    if (!this.client || !this.sessionId) return undefined;
     try {
-      const raw = execSync(
-        `curl -s --max-time 5 http://127.0.0.1:${this.opencodePort}/session/${this.sessionId}/message`,
-        { encoding: 'utf-8', timeout: 8000, maxBuffer: 10 * 1024 * 1024 },
-      );
-      const messages = JSON.parse(raw) as Array<{
+      const { data: messages } = await this.client.session.messages({ path: { id: this.sessionId } });
+      const list = messages as Array<{
         info?: { id?: string; role?: string; error?: string; metadata?: { error?: string } };
         parts?: Array<{ type?: string; text?: string }>;
-      }>;
+      }> | undefined;
+      if (!list) return undefined;
 
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
+      for (let i = list.length - 1; i >= 0; i--) {
+        const msg = list[i];
         if (msg.info?.role !== 'assistant') continue;
         if (assistantMessageId && msg.info.id !== assistantMessageId) continue;
 
