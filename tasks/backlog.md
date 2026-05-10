@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-10
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4e Slack adapter complete. Next: remaining P4e+ items.
+> Current stage: P4e Slack + WeCom adapters complete. Next: P4f Web console.
 
 ---
 
@@ -239,14 +239,32 @@
 
 ---
 
-## P4e+ — Future (v0.5+)
+## ✅ P4e — WeCom Adapter (v0.4)
 
+**完成日期**: 2026-05-10
+
+- [x] `@wecom/aibot-node-sdk` dependency with WebSocket transport
+- [x] `WeComAdapter` (~390 lines): WSClient message handling, template cards, interactive buttons, project selection, session switching, dedup
+- [x] `wecomRenderPolicy` (27 lines): 4000 char limit, WeCom markdown format
+- [x] Wired in `main.ts`: imports, render policy selection (2 locations), adapter instantiation from env vars
+- [x] Two-token auth: `WECOM_BOT_ID` + `WECOM_SECRET`
+- [x] Full `/pf` command routing: list, use, new, sessions, switch, approve, deny, doctor, test, commit, pr, diff, help
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 7 files, 71 tests, all passed
+- ⏳ E2E — pending WeCom bot credentials setup on server
+
+---
+
+## P4f+ — Future (v0.5+)
+
+- [ ] Web console (platform-independent UI)
+- [ ] Multi-user permissions and full audit trail UI
+- [ ] opencode plugin with real-time event hooks
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
-- [ ] opencode plugin with real-time event hooks
-- [ ] WeCom adapter
-- [ ] Web console
-- [ ] Multi-user permissions and full audit trail UI
 
 ---
 
@@ -275,3 +293,4 @@
 - [x] P4c: SSH runtime connector — `SshRuntime` with health check, streaming exec, timeout, process management
 - [x] P4d: Self-daemonizing connector — supervisor/watchdog, start/stop/status CLI, auto-respawn with backoff, log redirect
 - [x] P4e: Slack adapter — `@slack/bolt` Socket Mode, Block Kit cards, `/pf` command routing, `slackRenderPolicy`
+- [x] P4e: WeCom adapter — `@wecom/aibot-node-sdk` WebSocket, template cards, `/pf` command routing, `wecomRenderPolicy`
