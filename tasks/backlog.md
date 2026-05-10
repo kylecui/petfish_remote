@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-10
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4d self-daemonizing connector complete. Next: remaining P4d+ items.
+> Current stage: P4e Slack adapter complete. Next: remaining P4e+ items.
 
 ---
 
@@ -220,12 +220,31 @@
 
 ---
 
-## P4d+ — Future (v0.5+)
+## ✅ P4e — Slack Adapter (v0.4)
+
+**完成日期**: 2026-05-10
+
+- [x] `@slack/bolt` dependency with Socket Mode support
+- [x] `SlackAdapter` (469 lines): message handling, Block Kit cards, interactive buttons, project selection, session switching
+- [x] `slackRenderPolicy` (27 lines): 4000 char limit, Slack-formatted headers/errors
+- [x] Wired in `main.ts`: imports, render policy selection (2 locations), adapter instantiation from env vars
+- [x] Three-token auth: `SLACK_BOT_TOKEN` (xoxb-), `SLACK_APP_TOKEN` (xapp-), `SLACK_SIGNING_SECRET` (optional HTTP mode)
+- [x] Full `/pf` command routing: list, use, new, sessions, switch, approve, deny, doctor, test, commit, pr, diff, help
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 7 files, 71 tests, all passed
+- ⏳ E2E — pending Slack workspace setup
+
+---
+
+## P4e+ — Future (v0.5+)
 
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 - [ ] opencode plugin with real-time event hooks
-- [ ] Slack and WeCom adapters
+- [ ] WeCom adapter
 - [ ] Web console
 - [ ] Multi-user permissions and full audit trail UI
 
@@ -255,3 +274,4 @@
 - [x] P4b: IM session cards & switching — `/pf sessions` + `/pf switch <n>`, protocol + bridge + gateway + renderer
 - [x] P4c: SSH runtime connector — `SshRuntime` with health check, streaming exec, timeout, process management
 - [x] P4d: Self-daemonizing connector — supervisor/watchdog, start/stop/status CLI, auto-respawn with backoff, log redirect
+- [x] P4e: Slack adapter — `@slack/bolt` Socket Mode, Block Kit cards, `/pf` command routing, `slackRenderPolicy`
