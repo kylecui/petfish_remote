@@ -64,7 +64,7 @@
 - ✅ `tsc --noEmit` — 零错误
 - ✅ `npm run build` — 编译成功
 - ✅ `npm test` — 7 files, 71 tests, all passed
-- ⏳ 端到端测试 — 待用户验证
+- ✅ 端到端测试 — 用户确认通过
 
 **依赖**: STAB-0 ✅  
 **设计文档**: `docs/design/phase-1-root-session-binding.md`
@@ -88,14 +88,16 @@
 - ✅ `tsc --noEmit` — 零错误
 - ✅ `npm run build` — 编译成功
 - ✅ `npm test` — 7 files, 71 tests, all passed
-- ⏳ 端到端测试 — 待用户验证
+- ✅ 端到端测试 — 用户确认通过
 
 **依赖**: STAB-0 ✅, STAB-1 ✅  
 **设计文档**: `docs/design/phase-2-request-lifecycle.md`
 
 ---
 
-### ROUTE-0: 跨项目路由隔离 — 只展示在线项目，拒绝发往离线项目的消息
+### ROUTE-0: 跨项目路由隔离 — 只展示在线项目，拒绝发往离线项目的消息 ✅ CODE COMPLETE
+
+**完成日期**: 2026-05-10
 
 **根因**: `RegistrationService.restoreFromStorage()` 启动时从 SQLite 恢复所有曾注册项目到 `ProjectRegistry`，不检查 connector 是否在线。`ProjectRegistry` 没有在线/离线概念。飞书 `/pf list` 返回所有项目（含过期的）。用户选择过期项目后发消息，`RemoteRuntime.resolveConnector()` 找不到 connector，重试 3 次（耗时 30 秒），最终报错或路由到错误 connector。
 
@@ -109,7 +111,8 @@
 - ✅ `tsc --noEmit` — 零错误（仅 pre-existing hints）
 - ✅ `npm run build` — 编译成功
 - ✅ `npm test` — 7 files, 71 tests, all passed
-- ⏳ 端到端测试 — 待用户验证
+- ✅ petfish_remote 侧代码完成，已 committed（`8ec104a`）
+- ⏳ 端到端测试 — 需 petfish-bot 同步部署 server-side 变更（已开 issue）
 
 **依赖**: STAB-0 ✅ ~ STAB-3 ✅
 
@@ -165,3 +168,4 @@
 - [x] STAB-1: 替换 `/tui/*` prompt 注入为 SDK `session.promptAsync()`
 - [x] STAB-2: 显式 root-session 绑定 + TUI 回复泄漏修复
 - [x] STAB-3: SSE 驱动 busy 状态替换 HTTP 轮询
+- [x] ROUTE-0: 跨项目路由隔离 — disconnect cleanup + list filter + dispatch guard（petfish_remote 侧完成，petfish-bot 待同步部署）
