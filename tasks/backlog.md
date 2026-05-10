@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4f Web console complete. Next: P4g Multi-user permissions.
+> Current stage: P4g Multi-user permissions complete. Next: P4h opencode plugin.
 
 ---
 
@@ -282,9 +282,55 @@
 
 ---
 
-## P4g+ — Future (v0.5+)
+## ✅ P4g — Multi-user Permissions & Audit Trail (v0.4)
 
-- [ ] Multi-user permissions and full audit trail UI
+**完成日期**: 2026-05-11
+
+### P4g-a: User auto-registration ✅
+
+- [x] `UserRole` type (`admin | operator | viewer`) and `DEFAULT_MODES_BY_ROLE` constant in `src/types.ts`
+- [x] Auto-register users on first interaction: first user = admin, subsequent = viewer
+- [x] `hasAnyUser()`, `getAllUsers()`, `getUserAuditLogs()`, `getRecentAuditLogs()` storage methods
+- [x] Fixed Zod schema: `role` field uses `z.enum(['admin', 'operator', 'viewer'])`
+
+### P4g-b: Role-based command access control ✅
+
+- [x] `hasMinimumRole()` function and `COMMAND_MIN_ROLE` map (viewer/operator/admin tiers)
+- [x] Enforcement in `main.ts` after policy engine check, before command dispatch
+- [x] Commands categorized: viewer (help, list, where, status, sessions, log, diff), operator (ask, edit, test, use, new, switch, pr, commit, approve, deny, stop, doctor), admin (audit, users, role)
+
+### P4g-c: Role-based mode restriction ✅
+
+- [x] Mode check in `dispatchAgentTask()`: validates `user.allowed_modes` before task execution
+- [x] Returns permission denied message with user's allowed modes listed
+
+### P4g-d: Comprehensive audit trail ✅
+
+- [x] 9 event types: `message_received`, `user_registered`, `command_executed`, `task_dispatched`, `task_completed`, `task_failed`, `permission_denied`, `project_bound`, `session_switched`
+- [x] `auditLogger.log()` calls at 10 locations in `main.ts`
+
+### P4g-e: Admin commands ✅
+
+- [x] `/pf audit [userId]` — shows recent 20 audit logs (or filtered by user)
+- [x] `/pf users` — lists all registered users with roles and allowed modes
+- [x] `/pf role <userId> <role>` — changes user role and updates allowed modes
+- [x] Commands added to `CommandRouter` (`SupportedCommandName` union + `supportedCommands` set)
+- [x] Help text updated in `MessageRenderer.renderHelp()`
+
+### P4g-f: Backlog & deployment ✅
+
+- [x] Backlog updated with P4g sub-tasks
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 7 files, 71 tests, all passed
+- ⏳ E2E — pending deployment
+
+---
+
+## P4h+ — Future (v0.5+)
+
 - [ ] opencode plugin with real-time event hooks
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
@@ -318,3 +364,4 @@
 - [x] P4e: Slack adapter — `@slack/bolt` Socket Mode, Block Kit cards, `/pf` command routing, `slackRenderPolicy`
 - [x] P4e: WeCom adapter — `@wecom/aibot-node-sdk` WebSocket, template cards, `/pf` command routing, `wecomRenderPolicy`
 - [x] P4f: Web console — `WebAdapter` on `/ws/web`, dark-themed browser UI, API key auth, noServer WSS routing, nginx proxy, full E2E verified
+- [x] P4g: Multi-user permissions & audit trail — `UserRole` types, auto-registration, role-based command/mode access control, 9-event audit trail, `/pf audit` + `/pf users` + `/pf role` admin commands
