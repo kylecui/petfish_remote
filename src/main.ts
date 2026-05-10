@@ -3,6 +3,7 @@ import path from 'node:path';
 import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
 import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
+import { SlackAdapter } from './adapters/slack/SlackAdapter.js';
 import type { IMAdapter, AdapterDeps, AdapterInboundEvent, SessionListEntry } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import type { ParsedCommand } from './core/CommandRouter.js';
@@ -21,6 +22,7 @@ import { OutputBatcher } from './render/OutputBatcher.js';
 import { DiffRenderer } from './render/DiffRenderer.js';
 import { telegramRenderPolicy } from './render/renderPolicy.js';
 import { feishuRenderPolicy } from './adapters/feishu/feishuRenderPolicy.js';
+import { slackRenderPolicy } from './adapters/slack/slackRenderPolicy.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
@@ -291,7 +293,9 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     }).catch((err) => console.error(`[dispatch] Failed to send acceptance message:`, err));
   }
 
-  const renderPolicy = event.platform === 'feishu' ? feishuRenderPolicy : telegramRenderPolicy;
+  const renderPolicy = event.platform === 'feishu' ? feishuRenderPolicy
+  : event.platform === 'slack' ? slackRenderPolicy
+  : telegramRenderPolicy;
 
   const batcher = new OutputBatcher(
     (text, plain) => {
@@ -490,7 +494,9 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
       const approveTask = taskManager.getTask(approvalId);
       if (approveTask?.status === 'waiting_approval') {
-        const approvePolicy = event.platform === 'feishu' ? feishuRenderPolicy : telegramRenderPolicy;
+        const approvePolicy = event.platform === 'feishu' ? feishuRenderPolicy
+          : event.platform === 'slack' ? slackRenderPolicy
+          : telegramRenderPolicy;
         const batcher = new OutputBatcher(
           (text, plain) => {
             const a = getAdapterForEvent(event);
@@ -858,8 +864,17 @@ if (feishuAppId && feishuAppSecret) {
   }
 }
 
+const slackBotToken = process.env.SLACK_BOT_TOKEN;
+const slackAppToken = process.env.SLACK_APP_TOKEN;
+if (slackBotToken && slackAppToken) {
+  const slackAdapter = new SlackAdapter({ botToken: slackBotToken, appToken: slackAppToken }, adapterDeps);
+  adapterMap.set('slack', slackAdapter);
+  slackAdapter.onEvent(handleAdapterEvent);
+  if (!adapter) adapter = slackAdapter;
+}
+
 if (adapterMap.size === 0) {
-  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN or FEISHU_APP_ID+FEISHU_APP_SECRET.');
+  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN, FEISHU_APP_ID+FEISHU_APP_SECRET, or SLACK_BOT_TOKEN+SLACK_APP_TOKEN.');
   process.exit(1);
 }
 
