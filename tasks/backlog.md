@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-10
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: Post-alpha, stabilizing v0.1. **Stability blockers escalated to top.**
+> Current stage: P4a/P4b complete, E2E pending. Next: P4c+ items.
 
 ---
 
@@ -142,11 +142,46 @@
 
 ---
 
-## P4 — Future (v0.4+)
+## ✅ P4a — Changed Files Summary (v0.4)
 
-- [ ] IM 独立交互模型：current session card, fork/switch flows — protocol currently has `SESSION_NEW` only; no session list/select flow
+**完成日期**: 2026-05-10
+
+- [x] Thread `FileChange[]` through full data flow: `AgentBridge` → `connectorProtocol` → `ConnectorClient` → `ConnectorGateway` → `RemoteRuntime` → `OpenCodeCliRunner` → `OpenCodeRunner` → `TaskManager` → `main.ts`
+- [x] Redesign `DiffRenderer` with per-file stats rendering (additions/deletions/status)
+- [x] `OpenCodeBridge.fetchFileChanges()` using SDK `client.session.diff()`
+- [x] Structured `FileChange` type in protocol with Zod validation
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 7 files, 71 tests, all passed
+- ⏳ E2E — pending deployment
+
+---
+
+## ✅ P4b — IM Session Cards & Switching (v0.4)
+
+**完成日期**: 2026-05-10
+
+- [x] Protocol: `MSG.SESSION_LIST`, `MSG.SESSION_LIST_RESPONSE`, `MSG.SESSION_SWITCH` + Zod payload schemas
+- [x] Bridge: `SessionInfo` type, `listSessions()` + `switchSession()` on `AgentBridge` interface + `OpenCodeBridge` implementation + `GeminiBridge`/`CodexBridge` stubs
+- [x] Connector: `handleSessionList()` and `handleSessionSwitch()` in `ConnectorClient`
+- [x] Gateway: `sendSessionListRequest()` / `sendSessionSwitch()` helpers + `session:list` event
+- [x] Commands: `sessions` / `switch` commands with NL pattern matching in `CommandRouter`
+- [x] Rendering: `renderSessionList()` with numbered entries + active indicator in `MessageRenderer`
+- [x] Wiring: Async request/response with 10s timeout via `sessionListCallbacks` Map in `main.ts`
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 7 files, 71 tests, all passed
+- ⏳ E2E — pending deployment
+
+---
+
+## P4c+ — Future (v0.5+)
+
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
-- [ ] Changed files summary rendering — `DiffRenderer` exists but `TaskCompletePayload` carries only stdout/stderr, no structured file-change payload
 - [ ] WSL and SSH runtime connectors — `WslRuntime` and `SshRuntime` are stubbed with `Not implemented`
 - [ ] opencode plugin with real-time event hooks
 - [ ] Slack and WeCom adapters
@@ -175,3 +210,5 @@
 - [x] ROUTE-0: 跨项目路由隔离 — disconnect cleanup + list filter + dispatch guard（petfish_remote 侧完成，petfish-bot 待同步部署）
 - [x] P3: `/pf doctor` — gateway diagnostics + connector/session visibility
 - [x] P3: `/pf test`, `/pf commit`, `/pf pr` — command routing and dispatch implemented
+- [x] P4a: Changed files summary — `FileChange[]` threaded through full pipeline, `DiffRenderer` redesigned, `fetchFileChanges()` via SDK
+- [x] P4b: IM session cards & switching — `/pf sessions` + `/pf switch <n>`, protocol + bridge + gateway + renderer
