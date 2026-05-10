@@ -14,6 +14,7 @@ import type { PolicyConfig } from './core/PolicyEngine.js';
 import { AuditLogger } from './core/AuditLogger.js';
 import { RuntimeRouter } from './runtime/RuntimeRouter.js';
 import { LocalRuntime } from './runtime/LocalRuntime.js';
+import { SshRuntime } from './runtime/SshRuntime.js';
 import { RemoteRuntime } from './runtime/RemoteRuntime.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
 import { OutputBatcher } from './render/OutputBatcher.js';
@@ -54,6 +55,8 @@ const runtimeRouter = new RuntimeRouter(config.runtimes);
 for (const rt of config.runtimes) {
   if (rt.type === 'local') {
     runtimeRouter.registerConnector(rt.id, new LocalRuntime(rt.id, rt.opencode_bin));
+  } else if (rt.type === 'ssh' && rt.host && rt.user) {
+    runtimeRouter.registerConnector(rt.id, new SshRuntime(rt.id, rt.host, rt.user, rt.identity_file, rt.port, rt.opencode_bin));
   }
 }
 
