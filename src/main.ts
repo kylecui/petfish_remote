@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
 import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
 import { SlackAdapter } from './adapters/slack/SlackAdapter.js';
+import { WeComAdapter } from './adapters/wecom/WeComAdapter.js';
 import type { IMAdapter, AdapterDeps, AdapterInboundEvent, SessionListEntry } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import type { ParsedCommand } from './core/CommandRouter.js';
@@ -23,6 +24,7 @@ import { DiffRenderer } from './render/DiffRenderer.js';
 import { telegramRenderPolicy } from './render/renderPolicy.js';
 import { feishuRenderPolicy } from './adapters/feishu/feishuRenderPolicy.js';
 import { slackRenderPolicy } from './adapters/slack/slackRenderPolicy.js';
+import { wecomRenderPolicy } from './adapters/wecom/wecomRenderPolicy.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
@@ -295,6 +297,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
 
   const renderPolicy = event.platform === 'feishu' ? feishuRenderPolicy
   : event.platform === 'slack' ? slackRenderPolicy
+  : event.platform === 'wecom' ? wecomRenderPolicy
   : telegramRenderPolicy;
 
   const batcher = new OutputBatcher(
@@ -496,6 +499,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       if (approveTask?.status === 'waiting_approval') {
         const approvePolicy = event.platform === 'feishu' ? feishuRenderPolicy
           : event.platform === 'slack' ? slackRenderPolicy
+          : event.platform === 'wecom' ? wecomRenderPolicy
           : telegramRenderPolicy;
         const batcher = new OutputBatcher(
           (text, plain) => {
@@ -873,8 +877,17 @@ if (slackBotToken && slackAppToken) {
   if (!adapter) adapter = slackAdapter;
 }
 
+const wecomBotId = process.env.WECOM_BOT_ID;
+const wecomSecret = process.env.WECOM_SECRET;
+if (wecomBotId && wecomSecret) {
+  const wecomAdapter = new WeComAdapter({ botId: wecomBotId, secret: wecomSecret }, adapterDeps);
+  adapterMap.set('wecom', wecomAdapter);
+  wecomAdapter.onEvent(handleAdapterEvent);
+  if (!adapter) adapter = wecomAdapter;
+}
+
 if (adapterMap.size === 0) {
-  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN, FEISHU_APP_ID+FEISHU_APP_SECRET, or SLACK_BOT_TOKEN+SLACK_APP_TOKEN.');
+  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN, FEISHU_APP_ID+FEISHU_APP_SECRET, SLACK_BOT_TOKEN+SLACK_APP_TOKEN, or WECOM_BOT_ID+WECOM_SECRET.');
   process.exit(1);
 }
 
