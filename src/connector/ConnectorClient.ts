@@ -19,7 +19,7 @@ import {
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
-import type { AgentBridge } from './bridges/AgentBridge.js';
+import type { AgentBridge, FileChange } from './bridges/AgentBridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const localPkgPath = resolve(__dirname, '../../package.json');
@@ -237,9 +237,9 @@ export class ConnectorClient {
     const onOutput = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => {
       this.send(createEnvelope(MSG.TASK_OUTPUT, { taskId, stream, chunk }, taskId));
     };
-    const onComplete = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => {
+    const onComplete = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string, files?: FileChange[]) => {
       console.log(`[task] completed taskId=${taskId} exitCode=${exitCode} stdout=${stdout.length}B`);
-      this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt }, taskId));
+      this.send(createEnvelope(MSG.TASK_COMPLETE, { taskId, exitCode, stdout, stderr, startedAt, finishedAt, ...(files ? { files } : {}) }, taskId));
     };
     const onFail = (taskId: string, error: string) => {
       console.log(`[task] failed taskId=${taskId} error=${error}`);

@@ -18,6 +18,7 @@ export interface CreateTaskParams {
 export interface TaskDispatchResult {
   output: string;
   exitCode: number;
+  files?: Array<{ file: string; additions: number; deletions: number }>;
 }
 
 /** Valid state transitions for the task state machine. Terminal states have no outbound edges. */
@@ -143,7 +144,7 @@ export class TaskManager {
 
       console.log(`[dispatch] taskId=${taskId} completed exitCode=${result.exitCode}`);
       this.updateStatus(taskId, result.exitCode === 0 ? 'completed' : 'failed');
-      return { output: result.output, exitCode: result.exitCode };
+      return { output: result.output, exitCode: result.exitCode, files: result.files };
     } catch (err) {
       console.error(`[dispatch] taskId=${taskId} error:`, err);
       this.updateStatus(taskId, 'failed');

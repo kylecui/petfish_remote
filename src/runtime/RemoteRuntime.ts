@@ -147,6 +147,7 @@ export class RemoteRuntime implements RuntimeConnector {
         stderr: payload.stderr,
         startedAt: payload.startedAt,
         finishedAt: payload.finishedAt,
+        files: payload.files,
       });
     });
 

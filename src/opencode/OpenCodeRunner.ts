@@ -15,6 +15,7 @@ export interface RunResult {
   output: string;
   exitCode: number;
   sessionId?: string;
+  files?: Array<{ file: string; additions: number; deletions: number }>;
 }
 
 export interface OpenCodeRunner {

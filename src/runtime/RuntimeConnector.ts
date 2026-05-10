@@ -21,6 +21,7 @@ export interface RuntimeResult {
   stderr: string;
   startedAt: string;
   finishedAt: string;
+  files?: Array<{ file: string; additions: number; deletions: number }>;
 }
 
 export interface RuntimeHealth {

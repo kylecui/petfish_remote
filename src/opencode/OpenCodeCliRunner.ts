@@ -33,6 +33,7 @@ export class OpenCodeCliRunner implements OpenCodeRunner {
       output: [result.stdout, result.stderr].filter((part) => part.length > 0).join('\n'),
       exitCode: result.exitCode,
       sessionId: params.sessionId,
+      files: result.files,
     };
   }
 

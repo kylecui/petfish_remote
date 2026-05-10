@@ -1,19 +1,23 @@
-export interface DiffFile {
-  path: string;
-  changeType: string;
-  summary: string;
+export interface FileChange {
+  file: string;
+  additions: number;
+  deletions: number;
 }
 
 export class DiffRenderer {
-  public renderDiffSummary(files: DiffFile[]): string {
-    if (files.length === 0) {
-      return 'No changes detected';
-    }
+  public renderDiffSummary(files: FileChange[]): string {
+    if (files.length === 0) return '';
 
-    return files
-      .map((file) => {
-        return `[${file.changeType}] ${file.path}\n${file.summary}`;
-      })
-      .join('\n\n');
+    const lines = files.map((f) => {
+      const adds = f.additions > 0 ? `+${f.additions}` : '';
+      const dels = f.deletions > 0 ? `-${f.deletions}` : '';
+      const stats = [adds, dels].filter(Boolean).join(' ');
+      return `\`${f.file}\` ${stats}`;
+    });
+
+    const totalAdds = files.reduce((s, f) => s + f.additions, 0);
+    const totalDels = files.reduce((s, f) => s + f.deletions, 0);
+
+    return `📝 *${files.length} file(s) changed* (+${totalAdds} -${totalDels})\n${lines.join('\n')}`;
   }
 }

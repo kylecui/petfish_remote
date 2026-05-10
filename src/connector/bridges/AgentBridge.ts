@@ -1,7 +1,13 @@
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 
 export type OutputCallback = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void;
-export type CompleteCallback = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string) => void;
+export interface FileChange {
+  file: string;
+  additions: number;
+  deletions: number;
+}
+
+export type CompleteCallback = (taskId: string, exitCode: number, stdout: string, stderr: string, startedAt: string, finishedAt: string, files?: FileChange[]) => void;
 export type FailCallback = (taskId: string, error: string) => void;
 export type QuestionCallback = (taskId: string, payload: TaskQuestionPayload) => void;
 export type PermissionCallback = (taskId: string, payload: TaskPermissionPayload) => void;

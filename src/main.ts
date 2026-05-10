@@ -17,6 +17,7 @@ import { LocalRuntime } from './runtime/LocalRuntime.js';
 import { RemoteRuntime } from './runtime/RemoteRuntime.js';
 import { MessageRenderer } from './render/MessageRenderer.js';
 import { OutputBatcher } from './render/OutputBatcher.js';
+import { DiffRenderer } from './render/DiffRenderer.js';
 import { telegramRenderPolicy } from './render/renderPolicy.js';
 import { feishuRenderPolicy } from './adapters/feishu/feishuRenderPolicy.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
@@ -313,6 +314,17 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     const a = getAdapterForEvent(event);
     if (a) a.clearPendingInteraction(event.chat_id);
     void batcher.complete(result.exitCode);
+    if (result.files && result.files.length > 0 && a) {
+      const summary = new DiffRenderer().renderDiffSummary(result.files);
+      if (summary) {
+        void a.sendMessage({
+          platform: event.platform,
+          chat_id: event.chat_id,
+          message_type: 'markdown',
+          text: summary,
+        }).catch((err: unknown) => console.error(`[dispatch] diff summary send failed:`, err));
+      }
+    }
   }).catch((err: unknown) => {
     clearInterval(typingInterval);
     const a = getAdapterForEvent(event);

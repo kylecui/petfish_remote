@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import type {
   AgentBridge,
   AgentType,
+  FileChange,
   OutputCallback,
   CompleteCallback,
   FailCallback,
@@ -291,7 +292,7 @@ export class OpenCodeBridge implements AgentBridge {
     if (entry && !entry.settled) {
       entry.settled = true;
       this.cleanup(taskId);
-      entry.onComplete(taskId, -1, entry.stdout, 'Cancelled', entry.startedAt, new Date().toISOString());
+      entry.onComplete(taskId, -1, entry.stdout, 'Cancelled', entry.startedAt, new Date().toISOString(), undefined);
     }
   }
 
@@ -338,7 +339,7 @@ export class OpenCodeBridge implements AgentBridge {
     }
     for (const [taskId, entry] of this.pending) {
       if (!entry.settled) {
-        entry.onComplete(taskId, -1, entry.stdout, 'Bridge stopped', entry.startedAt, new Date().toISOString());
+        entry.onComplete(taskId, -1, entry.stdout, 'Bridge stopped', entry.startedAt, new Date().toISOString(), undefined);
       }
     }
     this.pending.clear();
@@ -532,12 +533,16 @@ export class OpenCodeBridge implements AgentBridge {
             if (errorMsg) {
               entry.onFail(taskId, errorMsg);
             } else {
-              entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
+              const files = await this.fetchFileChanges();
+              entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
             }
           })();
           continue;
         }
-        entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
+        void (async () => {
+          const files = await this.fetchFileChanges();
+          entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
+        })();
       }
     }
 
@@ -585,6 +590,21 @@ export class OpenCodeBridge implements AgentBridge {
     return String(error);
   }
 
+  private async fetchFileChanges(): Promise<FileChange[] | undefined> {
+    if (!this.client || !this.sessionId) return undefined;
+    try {
+      const { data } = await this.client.session.diff({ path: { id: this.sessionId } });
+      if (!Array.isArray(data) || data.length === 0) return undefined;
+      return data.map((d: { file: string; additions: number; deletions: number }) => ({
+        file: d.file,
+        additions: d.additions ?? 0,
+        deletions: d.deletions ?? 0,
+      }));
+    } catch {
+      return undefined;
+    }
+  }
+
   private scheduleSettleOnComplete(taskId: string): void {
     const existing = this.settleTimers.get(taskId);
     if (existing) clearTimeout(existing);
@@ -603,7 +623,10 @@ export class OpenCodeBridge implements AgentBridge {
       console.log(`[OpenCodeBridge] settle firing task=${taskId} (${this.settleGraceMs / 1000}s after completion signal)`);
       entry.settled = true;
       this.cleanup(taskId);
-      entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString());
+      void (async () => {
+        const files = await this.fetchFileChanges();
+        entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
+      })();
       this.scheduleIdleDrain();
     }, this.settleGraceMs);
 

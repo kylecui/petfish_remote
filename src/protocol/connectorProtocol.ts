@@ -65,6 +65,14 @@ export const taskStatePayloadSchema = z.object({
 
 export type TaskStatePayload = z.infer<typeof taskStatePayloadSchema>;
 
+export const fileChangeSchema = z.object({
+  file: z.string(),
+  additions: z.number(),
+  deletions: z.number(),
+});
+
+export type FileChangePayload = z.infer<typeof fileChangeSchema>;
+
 export const taskCompletePayloadSchema = z.object({
   taskId: z.string(),
   exitCode: z.number(),
@@ -72,6 +80,7 @@ export const taskCompletePayloadSchema = z.object({
   stderr: z.string(),
   startedAt: z.string(),
   finishedAt: z.string(),
+  files: z.array(fileChangeSchema).optional(),
 });
 
 export type TaskCompletePayload = z.infer<typeof taskCompletePayloadSchema>;
