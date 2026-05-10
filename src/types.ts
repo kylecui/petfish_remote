@@ -1,4 +1,4 @@
-export type Platform = 'telegram' | 'slack' | 'feishu' | 'wecom' | 'discord';
+export type Platform = 'telegram' | 'slack' | 'feishu' | 'wecom' | 'discord' | 'web';
 
 export type ExecutionMode = 'read_only' | 'suggest' | 'edit_guarded' | 'execute_guarded' | 'admin';
 

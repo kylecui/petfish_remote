@@ -5,6 +5,7 @@ import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
 import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
 import { SlackAdapter } from './adapters/slack/SlackAdapter.js';
 import { WeComAdapter } from './adapters/wecom/WeComAdapter.js';
+import { WebAdapter } from './adapters/web/WebAdapter.js';
 import type { IMAdapter, AdapterDeps, AdapterInboundEvent, SessionListEntry } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import type { ParsedCommand } from './core/CommandRouter.js';
@@ -25,6 +26,7 @@ import { telegramRenderPolicy } from './render/renderPolicy.js';
 import { feishuRenderPolicy } from './adapters/feishu/feishuRenderPolicy.js';
 import { slackRenderPolicy } from './adapters/slack/slackRenderPolicy.js';
 import { wecomRenderPolicy } from './adapters/wecom/wecomRenderPolicy.js';
+import { webRenderPolicy } from './adapters/web/webRenderPolicy.js';
 import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
@@ -298,6 +300,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
   const renderPolicy = event.platform === 'feishu' ? feishuRenderPolicy
   : event.platform === 'slack' ? slackRenderPolicy
   : event.platform === 'wecom' ? wecomRenderPolicy
+  : event.platform === 'web' ? webRenderPolicy
   : telegramRenderPolicy;
 
   const batcher = new OutputBatcher(
@@ -418,7 +421,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         responseText = `Project not found: ${projectId}`;
         break;
       }
-      if (!projectRegistry.isUserAllowed(projectId, userId)) {
+      if (!userId.startsWith('web:') && !projectRegistry.isUserAllowed(projectId, userId)) {
         responseText = `Access denied to project: ${projectId}`;
         break;
       }
@@ -831,13 +834,13 @@ function fetchSessions(platform: Platform, chatId: string): Promise<SessionListE
 const adapterDeps: AdapterDeps = {
   listProjects: (userId: string) =>
     projectRegistry.listProjects().filter((p) => {
-      if (!projectRegistry.isUserAllowed(p.id, userId)) return false;
+      if (!userId.startsWith('web:') && !projectRegistry.isUserAllowed(p.id, userId)) return false;
       if (p.runtime === 'connector' && gateway && !gateway.registry.findByProject(p.id)) return false;
       return true;
     }),
   getBinding: (platform: Platform, chatId: string) => sessionManager.getSession(platform, chatId) ?? undefined,
   bindProject: (platform: Platform, chatId: string, projectId: string) => sessionManager.bindProject(platform, chatId, projectId),
-  isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),
+  isUserAllowed: (projectId: string, userId: string) => userId.startsWith('web:') || projectRegistry.isUserAllowed(projectId, userId),
   generateRegistrationToken: registrationService
     ? (userId: string) => registrationService!.generateToken(userId)
     : undefined,
@@ -886,8 +889,17 @@ if (wecomBotId && wecomSecret) {
   if (!adapter) adapter = wecomAdapter;
 }
 
+const webApiKey = process.env.WEB_API_KEY;
+if (webApiKey && gateway) {
+  const webAdapter = new WebAdapter({ apiKey: webApiKey, httpServer: gateway.server, registerWsRoute: (p, w) => gateway.registerWsRoute(p, w) }, adapterDeps);
+  adapterMap.set('web', webAdapter);
+  webAdapter.onEvent(handleAdapterEvent);
+  if (!adapter) adapter = webAdapter;
+  gateway.setStaticHandler((url) => webAdapter.serveStaticFile(url));
+}
+
 if (adapterMap.size === 0) {
-  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN, FEISHU_APP_ID+FEISHU_APP_SECRET, SLACK_BOT_TOKEN+SLACK_APP_TOKEN, or WECOM_BOT_ID+WECOM_SECRET.');
+  console.error('No IM adapter configured. Set TELEGRAM_BOT_TOKEN, FEISHU_APP_ID+FEISHU_APP_SECRET, SLACK_BOT_TOKEN+SLACK_APP_TOKEN, WECOM_BOT_ID+WECOM_SECRET, or WEB_API_KEY.');
   process.exit(1);
 }
 
