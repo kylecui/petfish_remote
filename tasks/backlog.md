@@ -135,19 +135,19 @@
 
 ---
 
-## P3 — Mid Term (v0.3–v0.4)
+## ✅ P3 — Done (v0.3)
 
-- [ ] IM 独立交互模型：current session card, fork/switch flows
-- [ ] Child/subagent session attribution under root session
-- [ ] WSL and SSH runtime connectors
-- [ ] Runtime health check (`/pf doctor`)
-- [ ] `/pf test`, `/pf commit`, `/pf pr` commands
-- [ ] Changed files summary rendering
+- [x] Runtime health check (`/pf doctor`) — implemented in `CommandRouter`, `main.ts`, `MessageRenderer`, `ConnectorGateway`
+- [x] `/pf test`, `/pf commit`, `/pf pr` commands — implemented in `main.ts` and exposed via `/pf` help
 
 ---
 
-## P4 — Future (v0.5+)
+## P4 — Future (v0.4+)
 
+- [ ] IM 独立交互模型：current session card, fork/switch flows — protocol currently has `SESSION_NEW` only; no session list/select flow
+- [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
+- [ ] Changed files summary rendering — `DiffRenderer` exists but `TaskCompletePayload` carries only stdout/stderr, no structured file-change payload
+- [ ] WSL and SSH runtime connectors — `WslRuntime` and `SshRuntime` are stubbed with `Not implemented`
 - [ ] opencode plugin with real-time event hooks
 - [ ] Slack and WeCom adapters
 - [ ] Web console
@@ -173,3 +173,5 @@
 - [x] STAB-2: 显式 root-session 绑定 + TUI 回复泄漏修复
 - [x] STAB-3: SSE 驱动 busy 状态替换 HTTP 轮询
 - [x] ROUTE-0: 跨项目路由隔离 — disconnect cleanup + list filter + dispatch guard（petfish_remote 侧完成，petfish-bot 待同步部署）
+- [x] P3: `/pf doctor` — gateway diagnostics + connector/session visibility
+- [x] P3: `/pf test`, `/pf commit`, `/pf pr` — command routing and dispatch implemented
