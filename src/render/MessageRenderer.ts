@@ -1,5 +1,12 @@
 import type { ProjectConfig, TaskRecord } from '../types.js';
 
+interface SessionEntry {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class MessageRenderer {
   public renderTaskCreated(task: TaskRecord): string {
     return `Task created: ${task.task_id}\nProject: ${task.project_id}\nMode: ${task.mode}\nStatus: ${task.status}`;
@@ -42,6 +49,24 @@ export class MessageRenderer {
       '/pf pr',
       '/pf commit',
       '/pf doctor',
+      '/pf sessions',
+      '/pf switch <session_id>',
     ].join('\n');
+  }
+
+  public renderSessionList(sessions: SessionEntry[], activeSessionId?: string): string {
+    if (sessions.length === 0) {
+      return 'No sessions found.';
+    }
+    const lines = [`📋 Sessions (${sessions.length}):`];
+    for (const s of sessions) {
+      const date = new Date(s.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const active = activeSessionId && s.id === activeSessionId ? ' ← active' : '';
+      const title = s.title || '(untitled)';
+      const shortId = s.id.length > 12 ? s.id.slice(0, 12) : s.id;
+      lines.push(`  ${shortId} — ${title} (${date})${active}`);
+    }
+    lines.push(`\nUse /pf switch <session_id> to switch.`);
+    return lines.join('\n');
   }
 }

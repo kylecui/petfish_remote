@@ -323,6 +323,41 @@ export class OpenCodeBridge implements AgentBridge {
     }
   }
 
+  public async listSessions(): Promise<import('./AgentBridge.js').SessionInfo[]> {
+    if (!this.client) return [];
+    try {
+      const { data } = await this.client.session.list();
+      const sessions = data as Array<{ id: string; title?: string; time?: { created?: string; updated?: string } }> | undefined;
+      if (!sessions) return [];
+      return sessions.map((s) => ({
+        id: s.id,
+        title: s.title ?? '(untitled)',
+        createdAt: s.time?.created ? new Date(s.time.created).getTime() : 0,
+        updatedAt: s.time?.updated ? new Date(s.time.updated).getTime() : 0,
+      }));
+    } catch (err) {
+      console.warn(`[OpenCodeBridge] listSessions failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  public async switchSession(sessionId: string): Promise<void> {
+    if (!this.opencodePort) {
+      throw new Error('No opencode port available');
+    }
+    const body = JSON.stringify({ sessionID: sessionId });
+    await fetch(`http://127.0.0.1:${this.opencodePort}/tui/select-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    this.sessionId = sessionId;
+    this.lastCompletedAssistantId = undefined;
+    this.sessionBusy = false;
+    console.log(`[OpenCodeBridge] switched to session=${sessionId}`);
+  }
+
   public stop(): void {
     this.stopped = true;
     this.sessionBusy = false;

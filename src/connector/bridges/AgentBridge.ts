@@ -14,6 +14,13 @@ export type PermissionCallback = (taskId: string, payload: TaskPermissionPayload
 
 export type AgentType = 'opencode' | 'gemini' | 'codex';
 
+export interface SessionInfo {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AgentBridge {
   readonly agentType: AgentType;
 
@@ -30,6 +37,8 @@ export interface AgentBridge {
 
   cancel(taskId: string): void;
   requestNewSession(): Promise<void>;
+  listSessions(): Promise<SessionInfo[]>;
+  switchSession(sessionId: string): Promise<void>;
 
   setQuestionCallback(cb: QuestionCallback): void;
   setPermissionCallback(cb: PermissionCallback): void;

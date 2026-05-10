@@ -63,6 +63,7 @@ const taskIdToChatId = new Map<string, { platform: Platform; chatId: string }>()
 const connectorIdToChatId = new Map<string, { platform: Platform; chatId: string }>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
+const sessionListCallbacks = new Map<string, { resolve: (sessions: Array<{ id: string; title: string; createdAt: number; updatedAt: number }>) => void }>();
 
 function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
@@ -230,6 +231,14 @@ if (config.gateway.enabled) {
     if (!targetAdapter) return;
     console.log(`[permission] Relaying permission ${payload.permissionId} to ${target.platform}:${target.chatId}`);
     void targetAdapter.sendInteraction({ type: 'permission', chatId: target.chatId, payload });
+  });
+
+  gateway.on('session:list', (_connectorId: string, payload: { requestId: string; sessions: Array<{ id: string; title: string; createdAt: number; updatedAt: number }> }) => {
+    const cb = sessionListCallbacks.get(payload.requestId);
+    if (cb) {
+      sessionListCallbacks.delete(payload.requestId);
+      cb.resolve(payload.sessions);
+    }
   });
 
   void gateway.start();
@@ -688,6 +697,64 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       }
 
       responseText = lines.join('\n');
+      break;
+    }
+    case 'sessions': {
+      const session = sessionManager.getSession(event.platform, event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      if (!gateway) {
+        responseText = 'Gateway not enabled.';
+        break;
+      }
+      const sessConnector = gateway.registry.findByProject(session.project_id);
+      if (!sessConnector) {
+        responseText = 'Connector not connected. Cannot list sessions.';
+        break;
+      }
+      const requestId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const sessionsPromise = new Promise<Array<{ id: string; title: string; createdAt: number; updatedAt: number }>>((resolve) => {
+        sessionListCallbacks.set(requestId, { resolve });
+        setTimeout(() => {
+          if (sessionListCallbacks.has(requestId)) {
+            sessionListCallbacks.delete(requestId);
+            resolve([]);
+          }
+        }, 10_000);
+      });
+      gateway.sendSessionListRequest(sessConnector.connectorId, session.project_id, requestId);
+      const sessions = await sessionsPromise;
+      if (sessions.length === 0) {
+        responseText = 'No sessions found (or request timed out).';
+      } else {
+        responseText = messageRenderer.renderSessionList(sessions);
+      }
+      break;
+    }
+    case 'switch': {
+      const session = sessionManager.getSession(event.platform, event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      if (!gateway) {
+        responseText = 'Gateway not enabled.';
+        break;
+      }
+      const switchTarget = parsed.args[0]?.trim() ?? '';
+      if (!switchTarget) {
+        responseText = 'Usage: /pf switch <session_id>';
+        break;
+      }
+      const switchConnector = gateway.registry.findByProject(session.project_id);
+      if (!switchConnector) {
+        responseText = 'Connector not connected. Cannot switch session.';
+        break;
+      }
+      gateway.sendSessionSwitch(switchConnector.connectorId, session.project_id, switchTarget);
+      responseText = `🔄 Switching to session ${switchTarget}. Next message will use the new session.`;
       break;
     }
     default: {

@@ -179,6 +179,14 @@ export class CodexBridge implements AgentBridge {
     // Codex app-server doesn't have a general question mechanism in standard flow
   }
 
+  public async listSessions(): Promise<import('./AgentBridge.js').SessionInfo[]> {
+    return [];
+  }
+
+  public async switchSession(_sessionId: string): Promise<void> {
+    throw new Error('Session switching not supported for Codex');
+  }
+
   public setPermissionCallback(cb: PermissionCallback): void {
     this.onPermission = cb;
   }

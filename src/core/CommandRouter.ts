@@ -15,7 +15,9 @@ export type SupportedCommandName =
   | 'pr'
   | 'commit'
   | 'new'
-  | 'doctor';
+  | 'doctor'
+  | 'sessions'
+  | 'switch';
 
 export interface ParsedCommand {
   name: SupportedCommandName;
@@ -41,6 +43,8 @@ const supportedCommands: ReadonlySet<SupportedCommandName> = new Set<SupportedCo
   'commit',
   'new',
   'doctor',
+  'sessions',
+  'switch',
 ]);
 
 export class CommandRouter {
@@ -116,6 +120,13 @@ export class CommandRouter {
     }
     if (lowered.includes('doctor') || lowered.includes('health check') || lowered.includes('diagnostics')) {
       return { name: 'doctor', args: [], rawText: text };
+    }
+    if (lowered.includes('list sessions') || lowered.includes('show sessions')) {
+      return { name: 'sessions', args: [], rawText: text };
+    }
+    if (lowered.startsWith('switch session ')) {
+      const sessionId = text.trim().split(/\s+/).pop() ?? '';
+      return { name: 'switch', args: sessionId ? [sessionId] : [], rawText: text };
     }
 
     return { name: 'ask', args: [], rawText: text };

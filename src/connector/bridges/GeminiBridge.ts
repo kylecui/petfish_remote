@@ -166,6 +166,14 @@ export class GeminiBridge implements AgentBridge {
     await this.init();
   }
 
+  public async listSessions(): Promise<import('./AgentBridge.js').SessionInfo[]> {
+    return [];
+  }
+
+  public async switchSession(_sessionId: string): Promise<void> {
+    throw new Error('Session switching not supported for Gemini');
+  }
+
   public setQuestionCallback(_cb: QuestionCallback): void {
     // Gemini ACP has no question mechanism (ask_user disabled in ACP mode)
   }

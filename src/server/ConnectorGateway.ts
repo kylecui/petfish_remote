@@ -22,6 +22,7 @@ import {
   taskOutputPayloadSchema,
   taskQuestionPayloadSchema,
   taskPermissionPayloadSchema,
+  sessionListResponsePayloadSchema,
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorAuth } from './ConnectorAuth.js';
 import { type ConnectorInfo, ConnectorRegistry } from './ConnectorRegistry.js';
@@ -343,6 +344,16 @@ export class ConnectorGateway extends EventEmitter {
     return this.sendToConnector(connectorId, envelope);
   }
 
+  public sendSessionListRequest(connectorId: string, projectId: string, requestId: string): boolean {
+    const envelope = createEnvelope(MSG.SESSION_LIST, { projectId, requestId });
+    return this.sendToConnector(connectorId, envelope);
+  }
+
+  public sendSessionSwitch(connectorId: string, projectId: string, sessionId: string): boolean {
+    const envelope = createEnvelope(MSG.SESSION_SWITCH, { projectId, sessionId });
+    return this.sendToConnector(connectorId, envelope);
+  }
+
   private handleConnection(ws: WebSocket): void {
     let authenticated = false;
     let connectorId: string | undefined;
@@ -493,6 +504,13 @@ export class ConnectorGateway extends EventEmitter {
         const payload = taskPermissionPayloadSchema.safeParse(envelope.payload);
         if (payload.success) {
           this.emit('task:permission', connectorId, payload.data);
+        }
+        break;
+      }
+      case MSG.SESSION_LIST_RESPONSE: {
+        const payload = sessionListResponsePayloadSchema.safeParse(envelope.payload);
+        if (payload.success) {
+          this.emit('session:list', connectorId, payload.data);
         }
         break;
       }

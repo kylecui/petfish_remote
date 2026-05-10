@@ -16,6 +16,8 @@ import {
   taskControlPayloadSchema,
   questionReplyPayloadSchema,
   permissionReplyPayloadSchema,
+  sessionListRequestPayloadSchema,
+  sessionSwitchPayloadSchema,
 } from '../protocol/connectorProtocol.js';
 import type { ConnectorConfig } from './connectorConfig.js';
 import type { LocalTaskExecutor } from './LocalTaskExecutor.js';
@@ -191,6 +193,12 @@ export class ConnectorClient {
       case MSG.SESSION_NEW:
         this.handleSessionNew();
         break;
+      case MSG.SESSION_LIST:
+        this.handleSessionList(envelope);
+        break;
+      case MSG.SESSION_SWITCH:
+        this.handleSessionSwitch(envelope);
+        break;
       case MSG.UPGRADE_AVAILABLE:
         this.handleUpgradeAvailable(envelope);
         break;
@@ -218,6 +226,40 @@ export class ConnectorClient {
     for (const bridge of this.bridges.values()) {
       void bridge.requestNewSession();
     }
+  }
+
+  private handleSessionList(envelope: Envelope): void {
+    const result = sessionListRequestPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { projectId, requestId } = result.data;
+    const bridge = this.bridges.get(projectId);
+    if (!bridge) {
+      this.send(createEnvelope(MSG.SESSION_LIST_RESPONSE, { requestId, sessions: [] }));
+      return;
+    }
+    bridge.listSessions().then((sessions) => {
+      this.send(createEnvelope(MSG.SESSION_LIST_RESPONSE, {
+        requestId,
+        sessions: sessions.map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt })),
+      }));
+    }).catch((err: unknown) => {
+      console.error(`[session] listSessions failed for project=${projectId}:`, err);
+      this.send(createEnvelope(MSG.SESSION_LIST_RESPONSE, { requestId, sessions: [] }));
+    });
+  }
+
+  private handleSessionSwitch(envelope: Envelope): void {
+    const result = sessionSwitchPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { projectId, sessionId } = result.data;
+    const bridge = this.bridges.get(projectId);
+    if (!bridge) {
+      console.warn(`[session] no bridge for project=${projectId}, cannot switch session`);
+      return;
+    }
+    bridge.switchSession(sessionId).catch((err: unknown) => {
+      console.error(`[session] switchSession failed for project=${projectId} session=${sessionId}:`, err);
+    });
   }
 
   private handleUpgradeAvailable(envelope: Envelope): void {

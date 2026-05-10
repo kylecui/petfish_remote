@@ -141,6 +141,20 @@ export const permissionReplyPayloadSchema = z.object({
 
 export type PermissionReplyPayload = z.infer<typeof permissionReplyPayloadSchema>;
 
+export const sessionListResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  sessions: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      createdAt: z.number(),
+      updatedAt: z.number(),
+    }),
+  ),
+});
+
+export type SessionListResponsePayload = z.infer<typeof sessionListResponsePayloadSchema>;
+
 // ---------------------------------------------------------------------------
 // Server → Connector messages
 // ---------------------------------------------------------------------------
@@ -181,6 +195,20 @@ export const errorPayloadSchema = z.object({
 
 export type ErrorPayload = z.infer<typeof errorPayloadSchema>;
 
+export const sessionListRequestPayloadSchema = z.object({
+  projectId: z.string(),
+  requestId: z.string(),
+});
+
+export type SessionListRequestPayload = z.infer<typeof sessionListRequestPayloadSchema>;
+
+export const sessionSwitchPayloadSchema = z.object({
+  projectId: z.string(),
+  sessionId: z.string(),
+});
+
+export type SessionSwitchPayload = z.infer<typeof sessionSwitchPayloadSchema>;
+
 // ---------------------------------------------------------------------------
 // Message type constants
 // ---------------------------------------------------------------------------
@@ -201,6 +229,9 @@ export const MSG = {
   TASK_PERMISSION: 'task.permission',
   PERMISSION_REPLY: 'permission.reply',
   SESSION_NEW: 'session.new',
+  SESSION_LIST: 'session.list',
+  SESSION_LIST_RESPONSE: 'session.list.response',
+  SESSION_SWITCH: 'session.switch',
   RESUME_RUNNING: 'resume.running',
   UPGRADE_AVAILABLE: 'upgrade.available',
   ERROR: 'error',
@@ -228,6 +259,9 @@ export const payloadSchemas: Record<string, z.ZodType> = {
   [MSG.TASK_PERMISSION]: taskPermissionPayloadSchema,
   [MSG.PERMISSION_REPLY]: permissionReplyPayloadSchema,
   [MSG.RESUME_RUNNING]: resumeRunningPayloadSchema,
+  [MSG.SESSION_LIST]: sessionListRequestPayloadSchema,
+  [MSG.SESSION_LIST_RESPONSE]: sessionListResponsePayloadSchema,
+  [MSG.SESSION_SWITCH]: sessionSwitchPayloadSchema,
   [MSG.ERROR]: errorPayloadSchema,
 };
 
