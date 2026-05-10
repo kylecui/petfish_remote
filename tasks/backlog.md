@@ -1,8 +1,8 @@
 # Backlog
 
-> Updated: 2026-05-10
+> Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4e Slack + WeCom adapters complete. Next: P4f Web console.
+> Current stage: P4f Web console complete. Next: P4g Multi-user permissions.
 
 ---
 
@@ -258,9 +258,32 @@
 
 ---
 
-## P4f+ — Future (v0.5+)
+## ✅ P4f — Web Console (v0.4)
 
-- [ ] Web console (platform-independent UI)
+**完成日期**: 2026-05-11
+
+- [x] `WebAdapter` (~350 lines): WebSocket server on `/ws/web` with API key auth (`?key=`), noServer routing via `registerWsRoute`
+- [x] WebSocket protocol: message/command/questionReply/permissionReply inbound; connected/message/typing/question/permission/menu/projectList/sessionList/welcome outbound
+- [x] Single-page dark-themed chat UI (`static/index.html`): auth overlay, auto-reconnect, markdown rendering, interactive cards, command bar, typing indicator, mobile-friendly
+- [x] `webRenderPolicy` (27 lines): 65536 char limit, standard markdown formatting
+- [x] `ConnectorGateway` refactored to `noServer: true` with unified upgrade routing via `wsRoutes` Map — fixes dual-WSS 400 conflict
+- [x] Web users (`web:` prefix) bypass connector-level allowlist checks in `listProjects`, `/pf use`, `isUserAllowed`
+- [x] Build script copies static assets: `tsc && cp -r src/adapters/web/static dist/adapters/web/static`
+- [x] Platform type updated with `'web'` variant
+- [x] Nginx configured: `/web/` static proxy + `/ws/web` WebSocket proxy to port 9100
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ Static page: `curl https://remote.petfish.ai/web/` → HTTP 200
+- ✅ WebSocket connect: `wss://remote.petfish.ai/ws/web?key=...` → `{"type":"connected","chatId":"web:...","projects":[6 projects]}`
+- ✅ Project binding: `/pf use petfish_tester` → `"Bound to project petfish_tester"`
+- ✅ Full message round-trip: `"say hello world"` → typing → task accepted → AI response → task completed
+
+---
+
+## P4g+ — Future (v0.5+)
+
 - [ ] Multi-user permissions and full audit trail UI
 - [ ] opencode plugin with real-time event hooks
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
@@ -294,3 +317,4 @@
 - [x] P4d: Self-daemonizing connector — supervisor/watchdog, start/stop/status CLI, auto-respawn with backoff, log redirect
 - [x] P4e: Slack adapter — `@slack/bolt` Socket Mode, Block Kit cards, `/pf` command routing, `slackRenderPolicy`
 - [x] P4e: WeCom adapter — `@wecom/aibot-node-sdk` WebSocket, template cards, `/pf` command routing, `wecomRenderPolicy`
+- [x] P4f: Web console — `WebAdapter` on `/ws/web`, dark-themed browser UI, API key auth, noServer WSS routing, nginx proxy, full E2E verified
