@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-10
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4a/P4b complete, E2E pending. Next: P4c+ items.
+> Current stage: P4c SSH runtime complete. Next: remaining P4c+ items.
 
 ---
 
@@ -179,10 +179,28 @@
 
 ---
 
-## P4c+ — Future (v0.5+)
+## ✅ P4c — SSH Runtime Connector (v0.4)
+
+**完成日期**: 2026-05-10
+
+- [x] `SshRuntime` fully implemented: `healthCheck()`, `run()`, `stop()`, `buildSshArgs()`, `execSsh()`, `shellEscape()`
+- [x] SSH connection: `StrictHostKeyChecking=no`, `BatchMode=yes`, `ConnectTimeout=10`, optional identity file and port
+- [x] Streaming stdout/stderr with `onOutput` callback, timeout handling, process tracking
+- [x] Wired in `main.ts`: SSH runtimes from config registered alongside local runtimes
+- [x] Config: `runtimes.yaml` has commented SSH example with all fields (host, port, user, identity_file, opencode_bin)
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ SSH connectivity verified against remote host
+- ✅ Deployed to production
+
+---
+
+## P4d+ — Future (v0.5+)
 
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
-- [ ] WSL and SSH runtime connectors — `WslRuntime` and `SshRuntime` are stubbed with `Not implemented`
+- [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 - [ ] opencode plugin with real-time event hooks
 - [ ] Slack and WeCom adapters
 - [ ] Web console
@@ -212,3 +230,4 @@
 - [x] P3: `/pf test`, `/pf commit`, `/pf pr` — command routing and dispatch implemented
 - [x] P4a: Changed files summary — `FileChange[]` threaded through full pipeline, `DiffRenderer` redesigned, `fetchFileChanges()` via SDK
 - [x] P4b: IM session cards & switching — `/pf sessions` + `/pf switch <n>`, protocol + bridge + gateway + renderer
+- [x] P4c: SSH runtime connector — `SshRuntime` with health check, streaming exec, timeout, process management
