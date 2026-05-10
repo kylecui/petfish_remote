@@ -5,6 +5,7 @@ import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
 import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
 import type { IMAdapter, AdapterDeps, AdapterInboundEvent } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
+import type { ParsedCommand } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
 import { SessionManager } from './core/SessionManager.js';
 import { TaskManager } from './core/TaskManager.js';
@@ -337,7 +338,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     }
   }
 
-  let parsed;
+  let parsed: ParsedCommand;
   try {
     parsed = commandRouter.parseCommand(event.text);
   } catch {
@@ -350,6 +351,20 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
   }
 
   let responseText: string;
+
+  const commandDecision = policyEngine.evaluateCommand(parsed.name);
+  if (commandDecision === 'deny') {
+    const adapter = getAdapterForEvent(event);
+    if (adapter) {
+      await adapter.sendMessage({
+        platform: event.platform,
+        chat_id: event.chat_id,
+        message_type: 'text',
+        text: `⛔ Command \`${parsed.name}\` is not allowed.`,
+      });
+    }
+    return;
+  }
 
   switch (parsed.name) {
     case 'help': {

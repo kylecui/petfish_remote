@@ -1,4 +1,5 @@
 import type { PolicyDecision } from '../types.js';
+import type { SupportedCommandName } from './CommandRouter.js';
 
 export interface PolicyAction {
   type: 'read' | 'write' | 'exec' | 'git' | 'docker';
@@ -10,6 +11,8 @@ export interface PolicyConfig {
   blockedTargets: string[];
   highRiskProfiles: string[];
   requireApprovalActions: Array<PolicyAction['type']>;
+  commandWhitelist?: SupportedCommandName[];
+  approvalRequiredCommands?: SupportedCommandName[];
 }
 
 export class PolicyEngine {
@@ -25,6 +28,20 @@ export class PolicyEngine {
     }
 
     if (this.config.requireApprovalActions.includes(action.type)) {
+      return 'require_approval';
+    }
+
+    return 'allow';
+  }
+
+  public evaluateCommand(command: SupportedCommandName): PolicyDecision {
+    const { commandWhitelist, approvalRequiredCommands } = this.config;
+
+    if (commandWhitelist && !commandWhitelist.includes(command)) {
+      return 'deny';
+    }
+
+    if (approvalRequiredCommands?.includes(command)) {
       return 'require_approval';
     }
 

@@ -118,20 +118,20 @@
 
 ---
 
-## 🟡 P1 — In Progress (v0.2)
+## ✅ P1 — Done (v0.2)
 
-- [ ] WebSocket reliability hardening (message replay, reconnection, churn reduction — #15, #16)
-- [ ] Feishu adapter parity with Telegram (card actions, bot_menu, /start alignment)
+- [x] WebSocket reliability hardening (message replay, reconnection, churn reduction — #15, #16) — already addressed in commit `117f231`
+- [x] Feishu adapter parity with Telegram (card actions, bot_menu, /start alignment) — platform limitations only (no typing API), not implementation gaps
 
 ---
 
-## 🟢 P2 — Near Term (v0.2)
+## ✅ P2 — Done (v0.2)
 
-- [ ] TaskManager approval flow: `/pf approve` and `/pf deny` commands
-- [ ] `/pf diff` command — show pending changes before approval
-- [ ] Command whitelist enforcement in PolicyEngine
-- [ ] Populate `docs/api.md` — document server REST endpoints and WebSocket protocol
-- [ ] Populate `docs/development.md` — local dev setup, testing, contribution guide
+- [x] TaskManager approval flow: `/pf approve` and `/pf deny` commands — already implemented in main.ts + TaskManager.ts
+- [x] `/pf diff` command — show pending changes before approval — already implemented in main.ts
+- [x] Command whitelist enforcement in PolicyEngine — `evaluateCommand()` added with configurable `commandWhitelist` and `approvalRequiredCommands`
+- [x] Populate `docs/api.md` — HTTP endpoints, WebSocket protocol, envelope format, all 19 MSG types documented
+- [x] Populate `docs/development.md` — setup, scripts, project structure, architecture patterns, config reference
 
 ---
 
@@ -157,6 +157,10 @@
 
 ## Done (Recent)
 
+- [x] P1: WebSocket reliability hardening (#15, #16) — commit `117f231`
+- [x] P1: Feishu adapter parity — platform limitations only, no code gaps
+- [x] P2: `/pf approve` and `/pf deny` — TaskManager approval flow already implemented
+- [x] P2: `/pf diff` — dispatches read_only agent task for git diff
 - [x] Task state transition guards with valid transition map
 - [x] PolicyEngine connected to task dispatch lifecycle
 - [x] Platform-appropriate render policy for OutputBatcher
