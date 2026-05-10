@@ -2,6 +2,45 @@ export type Platform = 'telegram' | 'slack' | 'feishu' | 'wecom' | 'discord' | '
 
 export type ExecutionMode = 'read_only' | 'suggest' | 'edit_guarded' | 'execute_guarded' | 'admin';
 
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
+export const DEFAULT_MODES_BY_ROLE: Record<UserRole, ExecutionMode[]> = {
+  admin: ['read_only', 'suggest', 'edit_guarded', 'execute_guarded', 'admin'],
+  operator: ['read_only', 'suggest', 'edit_guarded', 'execute_guarded'],
+  viewer: ['read_only'],
+};
+
+const ROLE_RANK: Record<UserRole, number> = { viewer: 0, operator: 1, admin: 2 };
+
+export function hasMinimumRole(userRole: UserRole, requiredRole: UserRole): boolean {
+  return ROLE_RANK[userRole] >= ROLE_RANK[requiredRole];
+}
+
+export const COMMAND_MIN_ROLE: Record<string, UserRole> = {
+  help: 'viewer',
+  list: 'viewer',
+  where: 'viewer',
+  status: 'viewer',
+  sessions: 'viewer',
+  log: 'viewer',
+  diff: 'viewer',
+  ask: 'operator',
+  edit: 'operator',
+  test: 'operator',
+  use: 'operator',
+  new: 'operator',
+  switch: 'operator',
+  pr: 'operator',
+  commit: 'operator',
+  approve: 'operator',
+  deny: 'operator',
+  stop: 'operator',
+  doctor: 'operator',
+  audit: 'admin',
+  users: 'admin',
+  role: 'admin',
+};
+
 export type TaskStatus =
   | 'created'
   | 'queued'
@@ -96,7 +135,7 @@ export interface RuntimeConfig {
 export interface UserConfig {
   id: string;
   name: string;
-  role: string;
+  role: UserRole;
   allowed_projects: string[];
   allowed_modes: ExecutionMode[];
 }

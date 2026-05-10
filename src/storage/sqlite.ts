@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-import type { ApprovalRecord, AuditEvent, Platform, SessionState, TaskRecord, UserConfig } from '../types.js';
+import type { ApprovalRecord, AuditEvent, Platform, SessionState, TaskRecord, UserConfig, UserRole } from '../types.js';
 
 export class Storage {
   private readonly db: Database.Database;
@@ -153,10 +153,32 @@ export class Storage {
     return {
       id: row.id,
       name: row.name,
-      role: row.role,
+      role: row.role as UserRole,
       allowed_projects: JSON.parse(row.allowed_projects) as string[],
       allowed_modes: JSON.parse(row.allowed_modes) as UserConfig['allowed_modes'],
     };
+  }
+
+  public hasAnyUser(): boolean {
+    const row = this.db.prepare('SELECT 1 FROM users LIMIT 1').get();
+    return row !== undefined;
+  }
+
+  public getAllUsers(): UserConfig[] {
+    const rows = this.db.prepare('SELECT id, name, role, allowed_projects, allowed_modes FROM users ORDER BY id').all() as Array<{
+      id: string;
+      name: string;
+      role: string;
+      allowed_projects: string;
+      allowed_modes: string;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      role: row.role as UserRole,
+      allowed_projects: JSON.parse(row.allowed_projects) as string[],
+      allowed_modes: JSON.parse(row.allowed_modes) as UserConfig['allowed_modes'],
+    }));
   }
 
   public upsertSession(session: SessionState): void {
@@ -352,6 +374,18 @@ export class Storage {
       .prepare('SELECT * FROM audit_logs WHERE task_id = ? ORDER BY created_at ASC')
       .all(taskId) as AuditEvent[];
     return rows;
+  }
+
+  public getUserAuditLogs(userId: string, limit = 50): AuditEvent[] {
+    return this.db
+      .prepare('SELECT * FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?')
+      .all(userId, limit) as AuditEvent[];
+  }
+
+  public getRecentAuditLogs(limit = 50): AuditEvent[] {
+    return this.db
+      .prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as AuditEvent[];
   }
 
   public upsertConnectorToken(userId: string, token: string): void {
