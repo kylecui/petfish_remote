@@ -3,6 +3,7 @@ import { ConnectorClient } from './ConnectorClient.js';
 import { LocalTaskExecutor } from './LocalTaskExecutor.js';
 import { createBridge, type AgentBridge } from './bridges/index.js';
 import { daemonStart, daemonStop, daemonStatus, supervisorRun } from './daemon.js';
+import { installPluginAndPolicy } from '../plugin/installer.js';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -58,6 +59,16 @@ function runConnector(configPath: string | undefined) {
 
   async function start() {
     for (const project of config!.projects) {
+      const { installed } = installPluginAndPolicy({
+        projectDir: project.path,
+        mode: 'edit_guarded',
+        projectId: project.id,
+        connectorId: config!.connectorId,
+      });
+      if (!installed) {
+        console.warn(`[${project.id}] plugin install failed, hooks unavailable`);
+      }
+
       try {
         const bridge = await createBridge({ agent: project.agent, cwd: project.path });
         if (bridge) {
