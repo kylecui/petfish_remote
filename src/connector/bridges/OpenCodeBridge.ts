@@ -337,6 +337,7 @@ export class OpenCodeBridge implements AgentBridge {
           title: s.title ?? '(untitled)',
           createdAt: s.time?.created ? new Date(s.time.created).getTime() : 0,
           updatedAt: s.time?.updated ? new Date(s.time.updated).getTime() : 0,
+          active: s.id === this.sessionId,
         }));
     } catch (err) {
       console.warn(`[OpenCodeBridge] listSessions failed: ${err instanceof Error ? err.message : String(err)}`);

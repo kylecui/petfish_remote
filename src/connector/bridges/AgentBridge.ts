@@ -20,6 +20,7 @@ export interface SessionInfo {
   title: string;
   createdAt: number;
   updatedAt: number;
+  active: boolean;
 }
 
 export interface AgentBridge {

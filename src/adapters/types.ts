@@ -30,6 +30,15 @@ export type Unsubscribe = () => void;
 
 // ─── Adapter Dependencies ───────────────────────────────────────────────────
 
+export interface SessionListEntry {
+  id: string;
+  slug: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  active: boolean;
+}
+
 export interface AdapterDeps {
   listProjects: (userId: string) => ProjectConfig[];
   getBinding: (platform: Platform, chatId: string) => { project_id: string } | undefined;
@@ -39,6 +48,7 @@ export interface AdapterDeps {
   getUserChatId?: (platform: Platform, userId: string) => string | undefined;
   setUserChatId?: (platform: Platform, userId: string, chatId: string) => void;
   getAllUserChatIds?: (platform: Platform) => Map<string, string>;
+  listSessions?: (platform: Platform, chatId: string) => Promise<SessionListEntry[]>;
 }
 
 // ─── IMAdapter Interface ────────────────────────────────────────────────────

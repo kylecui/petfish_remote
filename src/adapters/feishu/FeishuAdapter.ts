@@ -180,6 +180,11 @@ export class FeishuAdapter extends BaseIMAdapter {
       return;
     }
 
+    if (text.trim() === '/pf sessions') {
+      void this.sendSessionListCard(chatId, userId);
+      return;
+    }
+
     this.emit({
       type: 'message',
       event: {
@@ -296,9 +301,14 @@ export class FeishuAdapter extends BaseIMAdapter {
       const command = value['command'] ?? '';
       if (command === 'list') {
         void this.sendProjectListCard(chatId, userId);
+      } else if (command === 'sessions') {
+        void this.sendSessionListCard(chatId, userId);
       } else if (command.startsWith('use:')) {
         const projectId = command.slice(4);
         this.emitSyntheticCommand(chatId, userId, `/pf use ${projectId}`);
+      } else if (command.startsWith('switch:')) {
+        const slug = command.slice(7);
+        this.emitSyntheticCommand(chatId, userId, `/pf switch ${slug}`);
       } else if (command) {
         this.emitSyntheticCommand(chatId, userId, `/pf ${command}`);
       }
@@ -384,6 +394,7 @@ export class FeishuAdapter extends BaseIMAdapter {
           tag: 'action',
           actions: [
             this.menuButton('📋 Projects', 'list'),
+            this.menuButton('📂 Sessions', 'sessions'),
             this.menuButton('📊 Status', 'status'),
           ],
         },
@@ -461,6 +472,52 @@ export class FeishuAdapter extends BaseIMAdapter {
       });
     } catch (err) {
       console.error(`[feishu] sendProjectListCard error:`, err);
+    }
+  }
+
+  private async sendSessionListCard(chatId: string, _userId: string): Promise<void> {
+    const sessions = await this.deps?.listSessions?.('feishu', chatId);
+
+    if (!sessions || sessions.length === 0) {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'text',
+          content: JSON.stringify({ text: 'No sessions found (or request timed out).' }),
+        },
+      });
+      return;
+    }
+
+    const buttons = sessions.map((s) =>
+      this.menuButton(`${s.active ? '✅' : '🔹'} ${s.slug} — ${s.title || '(untitled)'}`, `switch:${s.slug}`),
+    );
+
+    const card = {
+      header: {
+        title: { tag: 'plain_text', content: 'Select a session' },
+        template: 'green',
+      },
+      elements: [
+        {
+          tag: 'action',
+          actions: buttons,
+        },
+      ],
+    };
+
+    try {
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card),
+        },
+      });
+    } catch (err) {
+      console.error(`[feishu] sendSessionListCard error:`, err);
     }
   }
 

@@ -240,7 +240,7 @@ export class ConnectorClient {
     bridge.listSessions().then((sessions) => {
       this.send(createEnvelope(MSG.SESSION_LIST_RESPONSE, {
         requestId,
-        sessions: sessions.map((s) => ({ id: s.id, slug: s.slug, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt })),
+        sessions: sessions.map((s) => ({ id: s.id, slug: s.slug, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, active: s.active })),
       }));
     }).catch((err: unknown) => {
       console.error(`[session] listSessions failed for project=${projectId}:`, err);

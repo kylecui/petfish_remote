@@ -150,6 +150,7 @@ export const sessionListResponsePayloadSchema = z.object({
       title: z.string(),
       createdAt: z.number(),
       updatedAt: z.number(),
+      active: z.boolean(),
     }),
   ),
 });

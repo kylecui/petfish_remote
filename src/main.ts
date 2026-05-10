@@ -3,7 +3,7 @@ import path from 'node:path';
 import { loadConfig } from './config.js';
 import { TelegramAdapter } from './adapters/telegram/TelegramAdapter.js';
 import { FeishuAdapter } from './adapters/feishu/FeishuAdapter.js';
-import type { IMAdapter, AdapterDeps, AdapterInboundEvent } from './adapters/types.js';
+import type { IMAdapter, AdapterDeps, AdapterInboundEvent, SessionListEntry } from './adapters/types.js';
 import { CommandRouter } from './core/CommandRouter.js';
 import type { ParsedCommand } from './core/CommandRouter.js';
 import { ProjectRegistry } from './core/ProjectRegistry.js';
@@ -63,7 +63,7 @@ const taskIdToChatId = new Map<string, { platform: Platform; chatId: string }>()
 const connectorIdToChatId = new Map<string, { platform: Platform; chatId: string }>();
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
-const sessionListCallbacks = new Map<string, { resolve: (sessions: Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }>) => void }>();
+const sessionListCallbacks = new Map<string, { resolve: (sessions: SessionListEntry[]) => void }>();
 
 function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
@@ -233,7 +233,7 @@ if (config.gateway.enabled) {
     void targetAdapter.sendInteraction({ type: 'permission', chatId: target.chatId, payload });
   });
 
-  gateway.on('session:list', (_connectorId: string, payload: { requestId: string; sessions: Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }> }) => {
+  gateway.on('session:list', (_connectorId: string, payload: { requestId: string; sessions: SessionListEntry[] }) => {
     const cb = sessionListCallbacks.get(payload.requestId);
     if (cb) {
       sessionListCallbacks.delete(payload.requestId);
@@ -705,27 +705,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         responseText = 'No project bound. Use /pf use <project> first.';
         break;
       }
-      if (!gateway) {
-        responseText = 'Gateway not enabled.';
-        break;
-      }
-      const sessConnector = gateway.registry.findByProject(session.project_id);
-      if (!sessConnector) {
-        responseText = 'Connector not connected. Cannot list sessions.';
-        break;
-      }
-      const requestId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const sessionsPromise = new Promise<Array<{ id: string; slug: string; title: string; createdAt: number; updatedAt: number }>>((resolve) => {
-        sessionListCallbacks.set(requestId, { resolve });
-        setTimeout(() => {
-          if (sessionListCallbacks.has(requestId)) {
-            sessionListCallbacks.delete(requestId);
-            resolve([]);
-          }
-        }, 10_000);
-      });
-      gateway.sendSessionListRequest(sessConnector.connectorId, session.project_id, requestId);
-      const sessions = await sessionsPromise;
+      const sessions = await fetchSessions(event.platform, event.chat_id);
       if (sessions.length === 0) {
         responseText = 'No sessions found (or request timed out).';
       } else {
@@ -817,6 +797,24 @@ function handleAdapterEvent(event: AdapterInboundEvent): void {
 
 let adapter: IMAdapter | undefined;
 
+function fetchSessions(platform: Platform, chatId: string): Promise<SessionListEntry[]> {
+  const session = sessionManager.getSession(platform, chatId);
+  if (!session || !gateway) return Promise.resolve([]);
+  const connector = gateway.registry.findByProject(session.project_id);
+  if (!connector) return Promise.resolve([]);
+  const requestId = `sl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise<SessionListEntry[]>((resolve) => {
+    sessionListCallbacks.set(requestId, { resolve });
+    setTimeout(() => {
+      if (sessionListCallbacks.has(requestId)) {
+        sessionListCallbacks.delete(requestId);
+        resolve([]);
+      }
+    }, 10_000);
+    gateway!.sendSessionListRequest(connector.connectorId, session.project_id, requestId);
+  });
+}
+
 const adapterDeps: AdapterDeps = {
   listProjects: (userId: string) =>
     projectRegistry.listProjects().filter((p) => {
@@ -833,6 +831,7 @@ const adapterDeps: AdapterDeps = {
   getUserChatId: (platform: Platform, userId: string) => storage.getUserChatId(platform, userId),
   setUserChatId: (platform: Platform, userId: string, chatId: string) => storage.setUserChatId(platform, userId, chatId),
   getAllUserChatIds: (platform: Platform) => storage.getAllUserChatIds(platform),
+  listSessions: fetchSessions,
 };
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;

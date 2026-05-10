@@ -6,6 +6,7 @@ interface SessionEntry {
   title: string;
   createdAt: number;
   updatedAt: number;
+  active: boolean;
 }
 
 export class MessageRenderer {
@@ -55,17 +56,17 @@ export class MessageRenderer {
     ].join('\n');
   }
 
-  public renderSessionList(sessions: SessionEntry[], activeSessionId?: string): string {
+  public renderSessionList(sessions: SessionEntry[]): string {
     if (sessions.length === 0) {
       return 'No sessions found.';
     }
     const lines = [`📋 Sessions (${sessions.length}):`];
     for (const s of sessions) {
       const date = new Date(s.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      const active = activeSessionId && s.id === activeSessionId ? ' ← active' : '';
+      const marker = s.active ? ' ✅' : '';
       const title = s.title || '(untitled)';
       const label = s.slug || s.id.slice(0, 12);
-      lines.push(`  ${label} — ${title} (${date})${active}`);
+      lines.push(`  ${label} — ${title} (${date})${marker}`);
     }
     lines.push(`\nUse /pf switch <slug> to switch.`);
     return lines.join('\n');
