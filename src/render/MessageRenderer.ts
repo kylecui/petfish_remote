@@ -53,6 +53,9 @@ export class MessageRenderer {
       '/pf doctor',
       '/pf sessions',
       '/pf switch <slug>',
+      '/pf audit [userId]',
+      '/pf users',
+      '/pf role <userId> <role>',
     ].join('\n');
   }
 

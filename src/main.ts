@@ -33,7 +33,8 @@ import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
-import type { ChatEvent, ChatResponse, ExecutionMode, Platform } from './types.js';
+import type { ChatEvent, ChatResponse, ExecutionMode, Platform, UserRole } from './types.js';
+import { DEFAULT_MODES_BY_ROLE, COMMAND_MIN_ROLE, hasMinimumRole } from './types.js';
 
 const configDir = process.env.PETFISH_CONFIG_DIR ?? './config';
 const runtimeDir = process.env.PETFISH_RUNTIME_DIR ?? './.runtime';
@@ -263,6 +264,22 @@ function getAdapterForEvent(event: ChatEvent): IMAdapter | undefined {
 }
 
 function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, instruction: string, mode: ExecutionMode): void {
+  const user = storage.getUser(userId);
+  if (user && !user.allowed_modes.includes(mode)) {
+    const eventAdapter = getAdapterForEvent(event);
+    if (eventAdapter) {
+      eventAdapter.sendMessage({
+        platform: event.platform,
+        chat_id: event.chat_id,
+        reply_to: event.message_id,
+        message_type: 'text',
+        text: `⛔ Mode \`${mode}\` not allowed for your role (${user.role}). Allowed: ${user.allowed_modes.join(', ')}`,
+      }).catch((err) => console.error(`[dispatch] Failed to send mode denial:`, err));
+    }
+    auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'permission_denied', payload: JSON.stringify({ reason: 'mode_not_allowed', mode, role: user.role }) });
+    return;
+  }
+
   if (gateway && !gateway.registry.findByProject(projectId)) {
     const eventAdapter = getAdapterForEvent(event);
     if (eventAdapter) {
@@ -278,6 +295,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
   }
 
   const task = taskManager.createTask({ project_id: projectId, user_id: userId, instruction, mode });
+  auditLogger.log({ task_id: task.task_id, user_id: userId, event_type: 'task_dispatched', payload: JSON.stringify({ project_id: projectId, mode, instruction: instruction.slice(0, 200) }) });
   sessionManager.updateTask(event.platform, event.chat_id, task.task_id);
   taskIdToChatId.set(task.task_id, { platform: event.platform, chatId: event.chat_id });
   if (gateway) {
@@ -336,6 +354,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     const a = getAdapterForEvent(event);
     if (a) a.clearPendingInteraction(event.chat_id);
     void batcher.complete(result.exitCode);
+    auditLogger.log({ task_id: task.task_id, user_id: userId, event_type: 'task_completed', payload: JSON.stringify({ exitCode: result.exitCode, filesChanged: result.files?.length ?? 0 }) });
     if (result.files && result.files.length > 0 && a) {
       const summary = new DiffRenderer().renderDiffSummary(result.files);
       if (summary) {
@@ -353,11 +372,26 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
     if (a) a.clearPendingInteraction(event.chat_id);
     const msg = err instanceof Error ? err.message : String(err);
     void batcher.fail(msg);
+    auditLogger.log({ task_id: task.task_id, user_id: userId, event_type: 'task_failed', payload: JSON.stringify({ error: msg.slice(0, 500) }) });
   });
 }
 
 async function handleChatEvent(event: ChatEvent): Promise<void> {
   const userId = `${event.platform}:${event.user_id}`;
+
+  const existingUser = storage.getUser(userId);
+  if (!existingUser) {
+    const role: UserRole = storage.hasAnyUser() ? 'viewer' : 'admin';
+    storage.upsertUser({
+      id: userId,
+      name: event.username,
+      role,
+      allowed_projects: [],
+      allowed_modes: DEFAULT_MODES_BY_ROLE[role],
+    });
+    console.log(`[auth] Auto-registered user ${userId} as ${role}`);
+    auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'user_registered', payload: JSON.stringify({ role }) });
+  }
 
   auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'message_received', payload: event.text });
 
@@ -400,6 +434,27 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
     return;
   }
 
+  const requiredRole = COMMAND_MIN_ROLE[parsed.name];
+  if (requiredRole) {
+    const user = storage.getUser(userId);
+    const userRole = user?.role ?? 'viewer';
+    if (!hasMinimumRole(userRole, requiredRole)) {
+      const adapter = getAdapterForEvent(event);
+      if (adapter) {
+        await adapter.sendMessage({
+          platform: event.platform,
+          chat_id: event.chat_id,
+          message_type: 'text',
+          text: `⛔ Permission denied. \`/${parsed.name}\` requires **${requiredRole}** role (you: ${userRole}).`,
+        });
+      }
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'permission_denied', payload: JSON.stringify({ reason: 'insufficient_role', command: parsed.name, required: requiredRole, actual: userRole }) });
+      return;
+    }
+  }
+
+  auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'command_executed', payload: JSON.stringify({ command: parsed.name }) });
+
   switch (parsed.name) {
     case 'help': {
       responseText = messageRenderer.renderHelp();
@@ -426,6 +481,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         break;
       }
       sessionManager.bindProject(event.platform, event.chat_id, projectId);
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'project_bound', payload: JSON.stringify({ project_id: projectId }) });
       responseText = messageRenderer.renderProjectBound(project);
       break;
     }
@@ -534,10 +590,12 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         }).then((result) => {
           clearInterval(typingInterval);
           void batcher.complete(result.exitCode);
+          auditLogger.log({ task_id: approvalId, user_id: userId, event_type: 'task_completed', payload: JSON.stringify({ exitCode: result.exitCode, approved: true }) });
         }).catch((err: unknown) => {
           clearInterval(typingInterval);
           const msg = err instanceof Error ? err.message : String(err);
           void batcher.fail(msg);
+          auditLogger.log({ task_id: approvalId, user_id: userId, event_type: 'task_failed', payload: JSON.stringify({ error: msg.slice(0, 500), approved: true }) });
         });
 
         responseText = `✅ Approved task ${approvalId}. Executing...`;
@@ -750,7 +808,64 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
         break;
       }
       gateway.sendSessionSwitch(switchConnector.connectorId, session.project_id, switchTarget);
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'session_switched', payload: JSON.stringify({ project_id: session.project_id, target: switchTarget }) });
       responseText = `🔄 Switching to session ${switchTarget}. Next message will use the new session.`;
+      break;
+    }
+    case 'audit': {
+      const auditTarget = parsed.args[0];
+      const logs = auditTarget
+        ? storage.getUserAuditLogs(auditTarget, 20)
+        : storage.getRecentAuditLogs(20);
+      if (logs.length === 0) {
+        responseText = auditTarget ? `No audit logs for user: ${auditTarget}` : 'No audit logs found.';
+        break;
+      }
+      const header = auditTarget ? `📋 Audit log for ${auditTarget}` : '📋 Recent audit log';
+      const lines = logs.map((l) => {
+        const time = l.created_at.replace('T', ' ').slice(0, 19);
+        const who = l.user_id?.split(':').pop() ?? l.user_id ?? 'system';
+        return `${time} | ${who} | ${l.event_type}${l.task_id ? ` | task:${l.task_id.slice(0, 8)}` : ''}`;
+      });
+      responseText = `${header}\n\n${lines.join('\n')}`;
+      break;
+    }
+    case 'users': {
+      const allUsers = storage.getAllUsers();
+      if (allUsers.length === 0) {
+        responseText = 'No registered users.';
+        break;
+      }
+      const userLines = allUsers.map((u) => {
+        const modes = u.allowed_modes.join(', ');
+        return `${u.id} | ${u.name} | ${u.role} | modes: ${modes}`;
+      });
+      responseText = `👥 Registered users (${allUsers.length})\n\n${userLines.join('\n')}`;
+      break;
+    }
+    case 'role': {
+      const roleTargetId = parsed.args[0];
+      const newRole = parsed.args[1] as UserRole | undefined;
+      if (!roleTargetId || !newRole) {
+        responseText = 'Usage: /pf role <userId> <admin|operator|viewer>';
+        break;
+      }
+      if (!['admin', 'operator', 'viewer'].includes(newRole)) {
+        responseText = `Invalid role: ${newRole}. Must be admin, operator, or viewer.`;
+        break;
+      }
+      const targetUser = storage.getUser(roleTargetId);
+      if (!targetUser) {
+        responseText = `User not found: ${roleTargetId}`;
+        break;
+      }
+      storage.upsertUser({
+        ...targetUser,
+        role: newRole,
+        allowed_modes: DEFAULT_MODES_BY_ROLE[newRole],
+      });
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'command_executed', payload: JSON.stringify({ command: 'role', target: roleTargetId, oldRole: targetUser.role, newRole }) });
+      responseText = `✅ ${roleTargetId} role changed: ${targetUser.role} → ${newRole}\nModes: ${DEFAULT_MODES_BY_ROLE[newRole].join(', ')}`;
       break;
     }
     default: {

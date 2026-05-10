@@ -17,7 +17,10 @@ export type SupportedCommandName =
   | 'new'
   | 'doctor'
   | 'sessions'
-  | 'switch';
+  | 'switch'
+  | 'audit'
+  | 'users'
+  | 'role';
 
 export interface ParsedCommand {
   name: SupportedCommandName;
@@ -45,6 +48,9 @@ const supportedCommands: ReadonlySet<SupportedCommandName> = new Set<SupportedCo
   'doctor',
   'sessions',
   'switch',
+  'audit',
+  'users',
+  'role',
 ]);
 
 export class CommandRouter {
