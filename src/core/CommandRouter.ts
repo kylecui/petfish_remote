@@ -14,7 +14,8 @@ export type SupportedCommandName =
   | 'log'
   | 'pr'
   | 'commit'
-  | 'new';
+  | 'new'
+  | 'doctor';
 
 export interface ParsedCommand {
   name: SupportedCommandName;
@@ -39,6 +40,7 @@ const supportedCommands: ReadonlySet<SupportedCommandName> = new Set<SupportedCo
   'pr',
   'commit',
   'new',
+  'doctor',
 ]);
 
 export class CommandRouter {
@@ -111,6 +113,9 @@ export class CommandRouter {
     }
     if (lowered.includes('commit')) {
       return { name: 'commit', args: [], rawText: text };
+    }
+    if (lowered.includes('doctor') || lowered.includes('health check') || lowered.includes('diagnostics')) {
+      return { name: 'doctor', args: [], rawText: text };
     }
 
     return { name: 'ask', args: [], rawText: text };

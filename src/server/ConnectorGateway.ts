@@ -102,6 +102,15 @@ export class ConnectorGateway extends EventEmitter {
     this.adapterStatuses.set(name, status);
   }
 
+  public getDiagnostics(): { uptimeMs: number; adapters: Record<string, string>; connectors: ReturnType<ConnectorRegistry['list']>; pending: ReturnType<ConnectorRegistry['listPending']> } {
+    return {
+      uptimeMs: Date.now() - this.startedAt,
+      adapters: Object.fromEntries(this.adapterStatuses),
+      connectors: this.registry.list(),
+      pending: this.registry.listPending(),
+    };
+  }
+
   public setProjectListProvider(fn: () => Array<{ id: string; name: string; runtime: string; path: string; allowed_users: string[] }>): void {
     this.projectListProvider = fn;
   }

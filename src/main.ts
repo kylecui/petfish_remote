@@ -632,6 +632,52 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       }
       break;
     }
+    case 'doctor': {
+      if (!gateway) {
+        responseText = 'Gateway not enabled.';
+        break;
+      }
+      const diag = gateway.getDiagnostics();
+      const uptimeH = Math.floor(diag.uptimeMs / 3_600_000);
+      const uptimeM = Math.floor((diag.uptimeMs % 3_600_000) / 60_000);
+      const lines: string[] = [`🩺 Doctor Report`, `Uptime: ${uptimeH}h ${uptimeM}m`];
+
+      const adapterEntries = Object.entries(diag.adapters);
+      if (adapterEntries.length > 0) {
+        lines.push(`\nAdapters:`);
+        for (const [name, status] of adapterEntries) {
+          lines.push(`  ${name}: ${status}`);
+        }
+      }
+
+      if (diag.connectors.length > 0) {
+        lines.push(`\nConnectors (${diag.connectors.length}):`);
+        for (const c of diag.connectors) {
+          const projects = c.projects.map((p) => `${p.id}${p.opencodeAvailable ? '' : ' (no opencode)'}`).join(', ');
+          lines.push(`  ${c.hostname} — ${projects}`);
+        }
+      } else {
+        lines.push(`\nNo connectors online.`);
+      }
+
+      if (diag.pending.length > 0) {
+        lines.push(`\nPending reconnects (${diag.pending.length}):`);
+        for (const p of diag.pending) {
+          const ago = Math.round((Date.now() - p.disconnectedAt) / 1000);
+          lines.push(`  ${p.hostname} — disconnected ${ago}s ago`);
+        }
+      }
+
+      const currentSession = sessionManager.getSession(event.platform, event.chat_id);
+      if (currentSession) {
+        lines.push(`\nCurrent binding: ${currentSession.project_id}${currentSession.active_task_id ? ` (task: ${currentSession.active_task_id})` : ''}`);
+      } else {
+        lines.push(`\nNo project bound.`);
+      }
+
+      responseText = lines.join('\n');
+      break;
+    }
     default: {
       responseText = `Unknown command: ${parsed.name}. Try /pf help`;
       break;

@@ -41,6 +41,7 @@ export class MessageRenderer {
       '/pf log <task_id>',
       '/pf pr',
       '/pf commit',
+      '/pf doctor',
     ].join('\n');
   }
 }
