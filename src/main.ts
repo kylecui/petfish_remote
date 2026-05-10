@@ -152,7 +152,7 @@ if (config.gateway.enabled) {
             test_commands: {},
             risk_profile: 'default',
             secrets_policy: 'mask',
-          });
+          }, connectorId);
           console.log(`[auto-register] Project ${proj.id} added from connector ${connectorId}${connInfo.userId ? ` for user ${connInfo.userId}` : ''}`);
         }
       }
@@ -162,6 +162,11 @@ if (config.gateway.enabled) {
     const status = info ? '🟢 online' : '🔴 offline';
 
     if (!info) {
+      const removed = projectRegistry.removeProjectsByConnector(connectorId);
+      if (removed.length > 0) {
+        console.log(`[auto-unregister] Removed projects [${removed.join(', ')}] — connector ${connectorId} disconnected`);
+      }
+
       const target = connectorIdToChatId.get(connectorId);
       if (target) {
         const targetAdapter = adapterMap.get(target.platform);
@@ -238,6 +243,20 @@ function getAdapterForEvent(event: ChatEvent): IMAdapter | undefined {
 }
 
 function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, instruction: string, mode: ExecutionMode): void {
+  if (gateway && !gateway.registry.findByProject(projectId)) {
+    const eventAdapter = getAdapterForEvent(event);
+    if (eventAdapter) {
+      eventAdapter.sendMessage({
+        platform: event.platform,
+        chat_id: event.chat_id,
+        reply_to: event.message_id,
+        message_type: 'text',
+        text: `⚠️ Project \`${projectId}\` has no active connector. The connector may be offline — please check and reconnect.`,
+      }).catch((err) => console.error(`[dispatch] Failed to send offline notice:`, err));
+    }
+    return;
+  }
+
   const task = taskManager.createTask({ project_id: projectId, user_id: userId, instruction, mode });
   sessionManager.updateTask(event.platform, event.chat_id, task.task_id);
   taskIdToChatId.set(task.task_id, { platform: event.platform, chatId: event.chat_id });
@@ -660,7 +679,11 @@ let adapter: IMAdapter | undefined;
 
 const adapterDeps: AdapterDeps = {
   listProjects: (userId: string) =>
-    projectRegistry.listProjects().filter((p) => projectRegistry.isUserAllowed(p.id, userId)),
+    projectRegistry.listProjects().filter((p) => {
+      if (!projectRegistry.isUserAllowed(p.id, userId)) return false;
+      if (p.runtime === 'connector' && gateway && !gateway.registry.findByProject(p.id)) return false;
+      return true;
+    }),
   getBinding: (platform: Platform, chatId: string) => sessionManager.getSession(platform, chatId) ?? undefined,
   bindProject: (platform: Platform, chatId: string, projectId: string) => sessionManager.bindProject(platform, chatId, projectId),
   isUserAllowed: (projectId: string, userId: string) => projectRegistry.isUserAllowed(projectId, userId),

@@ -2,6 +2,7 @@ import type { ProjectConfig } from '../types.js';
 
 export class ProjectRegistry {
   private readonly projectsById: Map<string, ProjectConfig>;
+  private readonly projectToConnector = new Map<string, string>();
 
   public constructor(projects: ProjectConfig[]) {
     this.projectsById = new Map(projects.map((project) => [project.id, project]));
@@ -34,8 +35,26 @@ export class ProjectRegistry {
     return project.path;
   }
 
-  public addProject(project: ProjectConfig): void {
+  public addProject(project: ProjectConfig, connectorId?: string): void {
     this.projectsById.set(project.id, project);
+    if (connectorId) this.projectToConnector.set(project.id, connectorId);
+  }
+
+  public removeProject(id: string): void {
+    this.projectsById.delete(id);
+    this.projectToConnector.delete(id);
+  }
+
+  public removeProjectsByConnector(connectorId: string): string[] {
+    const removed: string[] = [];
+    for (const [projectId, cid] of this.projectToConnector) {
+      if (cid === connectorId) {
+        this.projectsById.delete(projectId);
+        this.projectToConnector.delete(projectId);
+        removed.push(projectId);
+      }
+    }
+    return removed;
   }
 
   public addUserToProject(projectId: string, userId: string): boolean {
