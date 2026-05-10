@@ -49,12 +49,42 @@ export class ConnectorGateway extends EventEmitter {
   private readonly startedAt = Date.now();
   private projectListProvider?: () => Array<{ id: string; name: string; runtime: string; path: string; allowed_users: string[] }>;
 
+  private staticHandler?: (url: string) => { contentType: string; body: string } | undefined;
+  private readonly wsRoutes = new Map<string, WebSocketServer>();
+
   public constructor(private readonly options: GatewayOptions) {
     super();
     this.httpServer = createServer((req, res) => this.handleHttp(req, res));
 
-    this.wss = new WebSocketServer({ server: this.httpServer, path: options.path });
+    this.wss = new WebSocketServer({ noServer: true });
     this.wss.on('connection', (ws) => this.handleConnection(ws));
+    this.wsRoutes.set(options.path, this.wss);
+
+    this.httpServer.on('upgrade', (req, socket, head) => {
+      const pathname = req.url?.split('?')[0];
+      for (const [route, wss] of this.wsRoutes) {
+        if (pathname === route) {
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws, req);
+          });
+          return;
+        }
+      }
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.destroy();
+    });
+  }
+
+  public get server(): HttpServer {
+    return this.httpServer;
+  }
+
+  public registerWsRoute(path: string, wss: WebSocketServer): void {
+    this.wsRoutes.set(path, wss);
+  }
+
+  public setStaticHandler(handler: (url: string) => { contentType: string; body: string } | undefined): void {
+    this.staticHandler = handler;
   }
 
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
@@ -87,6 +117,15 @@ export class ConnectorGateway extends EventEmitter {
     if (req.method === 'GET' && req.url === '/api/status') {
       this.handleStatusApi(req, res);
       return;
+    }
+
+    if (req.url && this.staticHandler) {
+      const result = this.staticHandler(req.url);
+      if (result) {
+        res.writeHead(200, { 'Content-Type': result.contentType });
+        res.end(result.body);
+        return;
+      }
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
