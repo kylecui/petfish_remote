@@ -329,9 +329,51 @@
 
 ---
 
-## P4h+ — Future (v0.5+)
+## P4h: opencode plugin with real-time event hooks ✅
 
-- [ ] opencode plugin with real-time event hooks
+### P4h-a: Plugin scaffold ✅
+
+- [x] `src/plugin/petfish-plugin.ts` — self-contained Bun plugin (excluded from tsconfig)
+- [x] Inline policy types, mode-based overrides, `resolvePolicy()` / `loadPolicy()`
+
+### P4h-b: Policy config ✅
+
+- [x] `src/plugin/policy.ts` — connector-side policy types and `buildPolicy()` builder
+
+### P4h-c: Core hooks ✅
+
+- [x] `tool.execute.before` — block/warn risky tools based on mode and policy
+- [x] `tool.execute.after` — log tool completions
+- [x] `permission.ask` — auto-allow/deny based on mode and policy
+
+### P4h-d: Context injection ✅
+
+- [x] `experimental.chat.system.transform` — injects PetFish context into system prompts
+
+### P4h-e: Custom tools ✅
+
+- [x] `petfish_status` — reports execution mode, policy summary, project info
+
+### P4h-f: Plugin installation ✅
+
+- [x] `src/plugin/installer.ts` — copies plugin to project `plugins/`, writes `.petfish/policy.json`
+- [x] Connector integration in `src/connector/main.ts` — installs on start per project
+
+### P4h-g: Build & test ✅
+
+- [x] Build script copies `petfish-plugin.ts` to `dist/plugin/`
+- [x] `tsc --noEmit` — zero errors
+- [x] `npm run build` — clean
+- [x] `npm test` — 7 files, 71 tests, all passed
+
+### P4h-h: Backlog & deployment ✅
+
+- [x] Backlog updated with P4h sub-tasks
+
+---
+
+## Future (v0.5+)
+
 - [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 
@@ -365,3 +407,4 @@
 - [x] P4e: WeCom adapter — `@wecom/aibot-node-sdk` WebSocket, template cards, `/pf` command routing, `wecomRenderPolicy`
 - [x] P4f: Web console — `WebAdapter` on `/ws/web`, dark-themed browser UI, API key auth, noServer WSS routing, nginx proxy, full E2E verified
 - [x] P4g: Multi-user permissions & audit trail — `UserRole` types, auto-registration, role-based command/mode access control, 9-event audit trail, `/pf audit` + `/pf users` + `/pf role` admin commands
+- [x] P4h: opencode plugin — self-contained Bun plugin with tool interception, permission auto-handling, context injection, custom `petfish_status` tool, connector-side installer
