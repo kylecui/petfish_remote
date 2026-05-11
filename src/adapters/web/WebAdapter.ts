@@ -6,7 +6,8 @@ import type { IncomingMessage } from 'node:http';
 
 import { WebSocketServer, type WebSocket } from 'ws';
 
-import type { ChatResponse } from '../../types.js';
+import type { ChatResponse, UserRole } from '../../types.js';
+import { hasMinimumRole } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 import { BaseIMAdapter } from '../types.js';
 import type { AdapterDeps, OutboundInteraction } from '../types.js';
@@ -287,21 +288,58 @@ export class WebAdapter extends BaseIMAdapter {
 
   private sendMenuPayload(client: WebClient): void {
     const binding = this.deps?.getBinding('web', client.chatId);
+    const role: UserRole = this.deps?.getUserRole?.(client.userId) ?? 'viewer';
+
+    const groups: { label: string; commands: { id: string; label: string }[] }[] = [
+      {
+        label: 'Project & Session',
+        commands: [
+          { id: 'list', label: '📋 Projects' },
+          { id: 'sessions', label: '📂 Sessions' },
+          { id: 'where', label: '📍 Where' },
+        ],
+      },
+      {
+        label: 'Task Control',
+        commands: [
+          { id: 'new', label: '🔄 New' },
+          { id: 'status', label: '📊 Status' },
+          { id: 'stop', label: '🛑 Stop' },
+        ],
+      },
+      {
+        label: 'Development',
+        commands: [
+          { id: 'diff', label: '📝 Diff' },
+          { id: 'commit', label: '✅ Commit' },
+          { id: 'pr', label: '🚀 PR' },
+          { id: 'test', label: '🧪 Test' },
+        ],
+      },
+    ];
+
+    if (hasMinimumRole(role, 'admin')) {
+      groups.push({
+        label: 'Admin',
+        commands: [
+          { id: 'users', label: '👥 Users' },
+          { id: 'audit', label: '📊 Audit' },
+          { id: 'doctor', label: '🩺 Doctor' },
+        ],
+      });
+    }
+
+    groups.push({
+      label: '',
+      commands: [{ id: 'help', label: '❓ Help' }],
+    });
+
     this.wsSend(client.ws, {
       type: 'menu',
       bound: binding?.project_id ?? null,
-      commands: [
-        { id: 'list', label: '📋 Projects' },
-        { id: 'sessions', label: '📂 Sessions' },
-        { id: 'status', label: '📊 Status' },
-        { id: 'new', label: '🔄 New' },
-        { id: 'stop', label: '🛑 Stop' },
-        { id: 'diff', label: '📝 Diff' },
-        { id: 'commit', label: '✅ Commit' },
-        { id: 'pr', label: '🚀 PR' },
-        { id: 'test', label: '🧪 Test' },
-        { id: 'help', label: '❓ Help' },
-      ],
+      role,
+      groups,
+      commands: groups.flatMap(g => g.commands),
     });
   }
 

@@ -3,7 +3,8 @@ import type { ButtonAction } from '@slack/bolt';
 import type { GenericMessageEvent } from '@slack/types';
 import type { KnownBlock } from '@slack/types';
 
-import type { ChatResponse } from '../../types.js';
+import type { ChatResponse, UserRole } from '../../types.js';
+import { hasMinimumRole } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 import { BaseIMAdapter } from '../types.js';
 import type { AdapterDeps, OutboundInteraction } from '../types.js';
@@ -263,29 +264,42 @@ export class SlackAdapter extends BaseIMAdapter {
       ? `Bound to: *${binding.project_id}*\nSend any message to ask.`
       : 'No project bound yet. Tap Projects to start.';
 
-    void userId;
+    const fullUserId = userId ? `slack:${userId}` : undefined;
+    const role: UserRole = fullUserId
+      ? (this.deps?.getUserRole?.(fullUserId) ?? 'viewer')
+      : 'viewer';
 
     const blocks = [
       { type: 'section' as const, text: { type: 'mrkdwn' as const, text: `*><(((^> PetFish Remote*\n\n${boundText}` } },
       { type: 'actions' as const, elements: [
         this.menuButton('📋 Projects', 'list'),
         this.menuButton('📂 Sessions', 'sessions'),
-        this.menuButton('📊 Status', 'status'),
+        this.menuButton('📍 Where', 'where'),
       ] },
       { type: 'actions' as const, elements: [
         this.menuButton('🔄 New', 'new'),
+        this.menuButton('📊 Status', 'status'),
         this.menuButton('🛑 Stop', 'stop'),
       ] },
       { type: 'actions' as const, elements: [
         this.menuButton('📝 Diff', 'diff'),
         this.menuButton('✅ Commit', 'commit'),
         this.menuButton('🚀 PR', 'pr'),
-      ] },
-      { type: 'actions' as const, elements: [
         this.menuButton('🧪 Test', 'test'),
-        this.menuButton('❓ Help', 'help'),
       ] },
     ];
+
+    if (hasMinimumRole(role, 'admin')) {
+      blocks.push({ type: 'actions' as const, elements: [
+        this.menuButton('👥 Users', 'users'),
+        this.menuButton('📊 Audit', 'audit'),
+        this.menuButton('🩺 Doctor', 'doctor'),
+      ] });
+    }
+
+    blocks.push({ type: 'actions' as const, elements: [
+      this.menuButton('❓ Help', 'help'),
+    ] });
 
     try {
       await this.app.client.chat.postMessage({ channel: chatId, text: 'PetFish Remote Menu', blocks });

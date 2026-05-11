@@ -1,6 +1,7 @@
 import { Bot, Context, GrammyError, InlineKeyboard } from 'grammy';
 
-import type { ChatEvent, ChatResponse } from '../../types.js';
+import type { ChatEvent, ChatResponse, UserRole } from '../../types.js';
+import { hasMinimumRole } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 import { BaseIMAdapter } from '../types.js';
 import type { AdapterDeps, OutboundInteraction } from '../types.js';
@@ -64,19 +65,9 @@ export class TelegramAdapter extends BaseIMAdapter {
       }
 
       const binding = this.deps?.getBinding('telegram', String(ctx.chat.id));
-      const keyboard = new InlineKeyboard()
-        .text('📋 Projects', 'pf:list')
-        .text('📊 Status', 'pf:status')
-        .row()
-        .text('🔄 New', 'pf:new')
-        .text('🛑 Stop', 'pf:stop')
-        .row()
-        .text('📝 Diff', 'pf:diff')
-        .text('✅ Commit', 'pf:commit')
-        .text('🚀 PR', 'pf:pr')
-        .row()
-        .text('🧪 Test', 'pf:test')
-        .text('❓ Help', 'pf:help');
+      const userId = `telegram:${ctx.from?.id}`;
+      const role = this.deps?.getUserRole?.(userId) ?? 'viewer';
+      const keyboard = this.buildMenuKeyboard(role);
 
       const boundText = binding
         ? `\nBound to: *${binding.project_id}*\nSend any message to ask.`
@@ -177,22 +168,42 @@ export class TelegramAdapter extends BaseIMAdapter {
       if (event) this.emit({ type: 'message', event });
     });
 
+    this.bot.callbackQuery('pf:sessions', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf sessions');
+      if (event) this.emit({ type: 'message', event });
+    });
+
+    this.bot.callbackQuery('pf:where', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf where');
+      if (event) this.emit({ type: 'message', event });
+    });
+
+    this.bot.callbackQuery('pf:users', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf users');
+      if (event) this.emit({ type: 'message', event });
+    });
+
+    this.bot.callbackQuery('pf:audit', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf audit');
+      if (event) this.emit({ type: 'message', event });
+    });
+
+    this.bot.callbackQuery('pf:doctor', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const event = this.syntheticEvent(ctx, '/pf doctor');
+      if (event) this.emit({ type: 'message', event });
+    });
+
     this.bot.callbackQuery('pf:back', async (ctx) => {
       await ctx.answerCallbackQuery();
       const binding = this.deps?.getBinding('telegram', String(ctx.chatId));
-      const keyboard = new InlineKeyboard()
-        .text('📋 Projects', 'pf:list')
-        .text('📊 Status', 'pf:status')
-        .row()
-        .text('🔄 New', 'pf:new')
-        .text('🛑 Stop', 'pf:stop')
-        .row()
-        .text('📝 Diff', 'pf:diff')
-        .text('✅ Commit', 'pf:commit')
-        .text('🚀 PR', 'pf:pr')
-        .row()
-        .text('🧪 Test', 'pf:test')
-        .text('❓ Help', 'pf:help');
+      const userId = `telegram:${ctx.from.id}`;
+      const role = this.deps?.getUserRole?.(userId) ?? 'viewer';
+      const keyboard = this.buildMenuKeyboard(role);
 
       const boundText = binding
         ? `\nBound to: *${binding.project_id}*\nSend any message to ask.`
@@ -266,6 +277,33 @@ export class TelegramAdapter extends BaseIMAdapter {
       attachments: [],
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private buildMenuKeyboard(role: UserRole): InlineKeyboard {
+    const kb = new InlineKeyboard()
+      .text('📋 Projects', 'pf:list')
+      .text('📂 Sessions', 'pf:sessions')
+      .text('📍 Where', 'pf:where')
+      .row()
+      .text('🔄 New', 'pf:new')
+      .text('📊 Status', 'pf:status')
+      .text('🛑 Stop', 'pf:stop')
+      .row()
+      .text('📝 Diff', 'pf:diff')
+      .text('✅ Commit', 'pf:commit')
+      .text('🚀 PR', 'pf:pr')
+      .text('🧪 Test', 'pf:test')
+      .row();
+
+    if (hasMinimumRole(role, 'admin')) {
+      kb.text('👥 Users', 'pf:users')
+        .text('📊 Audit', 'pf:audit')
+        .text('🩺 Doctor', 'pf:doctor')
+        .row();
+    }
+
+    kb.text('❓ Help', 'pf:help');
+    return kb;
   }
 
   private finalizeQuestion(pending: PendingQuestion): void {

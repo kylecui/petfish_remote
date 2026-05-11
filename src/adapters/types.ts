@@ -1,4 +1,4 @@
-import type { ChatEvent, ChatResponse, Platform, ProjectConfig } from '../types.js';
+import type { ChatEvent, ChatResponse, Platform, ProjectConfig, UserRole } from '../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../protocol/connectorProtocol.js';
 
 // ─── Outbound Interactions ───────────────────────────────────────────────────
@@ -49,6 +49,7 @@ export interface AdapterDeps {
   setUserChatId?: (platform: Platform, userId: string, chatId: string) => void;
   getAllUserChatIds?: (platform: Platform) => Map<string, string>;
   listSessions?: (platform: Platform, chatId: string) => Promise<SessionListEntry[]>;
+  getUserRole?: (userId: string) => UserRole;
 }
 
 // ─── IMAdapter Interface ────────────────────────────────────────────────────

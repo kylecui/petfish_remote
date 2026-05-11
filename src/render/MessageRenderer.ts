@@ -1,4 +1,5 @@
-import type { ProjectConfig, TaskRecord } from '../types.js';
+import type { ProjectConfig, TaskRecord, UserRole } from '../types.js';
+import { hasMinimumRole } from '../types.js';
 
 interface SessionEntry {
   id: string;
@@ -33,30 +34,51 @@ export class MessageRenderer {
     return `Bound to project ${project.id} (${project.name})\nPath: ${project.path}\nDefault mode: ${project.default_mode}`;
   }
 
-  public renderHelp(): string {
-    return [
-      '/pf help',
-      '/pf list',
-      '/pf use <project>',
-      '/pf where',
-      '/pf ask <instruction>',
-      '/pf edit <instruction>',
-      '/pf test',
-      '/pf status',
-      '/pf diff',
-      '/pf approve <approval_id>',
-      '/pf deny <approval_id>',
-      '/pf stop',
-      '/pf log <task_id>',
-      '/pf pr',
-      '/pf commit',
-      '/pf doctor',
-      '/pf sessions',
-      '/pf switch <slug>',
-      '/pf audit [userId]',
-      '/pf users',
-      '/pf role <userId> <role>',
-    ].join('\n');
+  public renderHelp(role: UserRole = 'viewer'): string {
+    const lines: string[] = [
+      '*📂 Project & Session*',
+      '  /pf list — List available projects',
+      '  /pf where — Show current binding',
+      '  /pf sessions — List opencode sessions',
+      '  /pf status — Show task status',
+      '',
+    ];
+
+    if (hasMinimumRole(role, 'operator')) {
+      lines.push(
+        '*⚡ Task Control*',
+        '  /pf ask <msg> — Send instruction (ask mode)',
+        '  /pf edit <msg> — Send instruction (edit mode)',
+        '  /pf new — Start a new session',
+        '  /pf use <project> — Switch project',
+        '  /pf switch <slug> — Switch session',
+        '  /pf stop — Cancel running task',
+        '',
+        '*🛠️ Development*',
+        '  /pf diff — Show file changes',
+        '  /pf commit — Commit changes',
+        '  /pf pr — Create pull request',
+        '  /pf test — Run tests',
+        '  /pf doctor — Health check',
+        '  /pf log <id> — Show task log',
+        '  /pf approve <id> — Approve action',
+        '  /pf deny <id> — Deny action',
+        '',
+      );
+    }
+
+    if (hasMinimumRole(role, 'admin')) {
+      lines.push(
+        '*🔧 Admin*',
+        '  /pf users — List users & roles',
+        '  /pf role <user> <role> — Set user role',
+        '  /pf audit [user] — View audit log',
+        '',
+      );
+    }
+
+    lines.push('/pf — Show menu card');
+    return lines.join('\n');
   }
 
   public renderSessionList(sessions: SessionEntry[]): string {

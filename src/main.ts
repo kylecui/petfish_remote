@@ -457,7 +457,9 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
   switch (parsed.name) {
     case 'help': {
-      responseText = messageRenderer.renderHelp();
+      const helpUser = storage.getUser(userId);
+      const helpRole = (helpUser?.role as import('./types.js').UserRole) ?? 'viewer';
+      responseText = messageRenderer.renderHelp(helpRole);
       break;
     }
     case 'list': {
@@ -963,6 +965,7 @@ const adapterDeps: AdapterDeps = {
   setUserChatId: (platform: Platform, userId: string, chatId: string) => storage.setUserChatId(platform, userId, chatId),
   getAllUserChatIds: (platform: Platform) => storage.getAllUserChatIds(platform),
   listSessions: fetchSessions,
+  getUserRole: (userId: string) => (storage.getUser(userId)?.role as import('./types.js').UserRole) ?? 'viewer',
 };
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;

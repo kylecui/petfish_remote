@@ -1,6 +1,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 
-import type { ChatResponse } from '../../types.js';
+import type { ChatResponse, UserRole } from '../../types.js';
+import { hasMinimumRole } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 import { BaseIMAdapter } from '../types.js';
 import type { AdapterDeps, OutboundInteraction } from '../types.js';
@@ -171,7 +172,7 @@ export class FeishuAdapter extends BaseIMAdapter {
     }
 
     if (text.trim() === '/pf' || text.trim() === '/menu') {
-      void this.sendMenuCard(chatId);
+      void this.sendMenuCard(chatId, 'chat_id', userId);
       return;
     }
 
@@ -231,7 +232,7 @@ export class FeishuAdapter extends BaseIMAdapter {
           void this.sendStartCard(userId, 'open_id');
           break;
         case 'pf_menu':
-          void this.sendMenuCard(userId, 'open_id');
+          void this.sendMenuCard(userId, 'open_id', userId);
           break;
         default:
           void this.sendCardMessage(userId, 'open_id', {
@@ -248,7 +249,7 @@ export class FeishuAdapter extends BaseIMAdapter {
         void this.sendStartCard(chatId, 'chat_id', userId);
         break;
       case 'pf_menu':
-        void this.sendMenuCard(chatId);
+      void this.sendMenuCard(chatId, 'chat_id', userId);
         break;
       case 'pf_list':
         void this.sendProjectListCard(chatId, userId);
@@ -375,6 +376,7 @@ export class FeishuAdapter extends BaseIMAdapter {
   private async sendMenuCard(
     receiveId: string,
     receiveIdType: 'chat_id' | 'open_id' = 'chat_id',
+    userId?: string,
   ): Promise<void> {
     const binding = receiveIdType === 'chat_id'
       ? this.deps?.getBinding('feishu', receiveId)
@@ -383,44 +385,62 @@ export class FeishuAdapter extends BaseIMAdapter {
       ? `Bound to: **${binding.project_id}**\nSend any message to ask.`
       : 'No project bound yet. Tap Projects to start.';
 
+    const fullUserId = userId ? `feishu:${userId}` : undefined;
+    const role: UserRole = fullUserId
+      ? (this.deps?.getUserRole?.(fullUserId) ?? 'viewer')
+      : 'viewer';
+
+    const elements: Record<string, unknown>[] = [
+      { tag: 'markdown', content: boundText },
+      {
+        tag: 'action',
+        actions: [
+          this.menuButton('📋 Projects', 'list'),
+          this.menuButton('📂 Sessions', 'sessions'),
+          this.menuButton('📍 Where', 'where'),
+        ],
+      },
+      {
+        tag: 'action',
+        actions: [
+          this.menuButton('🔄 New', 'new'),
+          this.menuButton('📊 Status', 'status'),
+          this.menuButton('🛑 Stop', 'stop'),
+        ],
+      },
+      {
+        tag: 'action',
+        actions: [
+          this.menuButton('📝 Diff', 'diff'),
+          this.menuButton('✅ Commit', 'commit'),
+          this.menuButton('🚀 PR', 'pr'),
+          this.menuButton('🧪 Test', 'test'),
+        ],
+      },
+    ];
+
+    if (hasMinimumRole(role, 'admin')) {
+      elements.push({
+        tag: 'action',
+        actions: [
+          this.menuButton('👥 Users', 'users'),
+          this.menuButton('📊 Audit', 'audit'),
+          this.menuButton('🩺 Doctor', 'doctor'),
+        ],
+      });
+    }
+
+    elements.push({
+      tag: 'action',
+      actions: [this.menuButton('❓ Help', 'help')],
+    });
+
     const card = {
       header: {
         title: { tag: 'plain_text', content: '><(((^> PetFish Remote' },
         template: 'blue',
       },
-      elements: [
-        { tag: 'markdown', content: boundText },
-        {
-          tag: 'action',
-          actions: [
-            this.menuButton('📋 Projects', 'list'),
-            this.menuButton('📂 Sessions', 'sessions'),
-            this.menuButton('📊 Status', 'status'),
-          ],
-        },
-        {
-          tag: 'action',
-          actions: [
-            this.menuButton('🔄 New', 'new'),
-            this.menuButton('🛑 Stop', 'stop'),
-          ],
-        },
-        {
-          tag: 'action',
-          actions: [
-            this.menuButton('📝 Diff', 'diff'),
-            this.menuButton('✅ Commit', 'commit'),
-            this.menuButton('🚀 PR', 'pr'),
-          ],
-        },
-        {
-          tag: 'action',
-          actions: [
-            this.menuButton('🧪 Test', 'test'),
-            this.menuButton('❓ Help', 'help'),
-          ],
-        },
-      ],
+      elements,
     };
 
     await this.sendCardMessage(receiveId, receiveIdType, card);

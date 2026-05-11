@@ -1,7 +1,8 @@
 import AiBot from '@wecom/aibot-node-sdk';
 import type { WsFrame, TemplateCard } from '@wecom/aibot-node-sdk';
 
-import type { ChatResponse } from '../../types.js';
+import type { ChatResponse, UserRole } from '../../types.js';
+import { hasMinimumRole } from '../../types.js';
 import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
 import { BaseIMAdapter } from '../types.js';
 import type { AdapterDeps, OutboundInteraction } from '../types.js';
@@ -280,12 +281,16 @@ export class WeComAdapter extends BaseIMAdapter {
     }
   }
 
-  private async sendMenuCard(chatId: string, _userId?: string): Promise<void> {
-    void _userId;
+  private async sendMenuCard(chatId: string, userId?: string): Promise<void> {
     const binding = this.deps?.getBinding('wecom', chatId);
     const desc = binding
       ? `Bound to: **${binding.project_id}**\nSend any message to ask.`
       : 'No project bound yet. Tap Projects to start.';
+
+    const fullUserId = userId ? `wecom:${userId}` : undefined;
+    const role: UserRole = fullUserId
+      ? (this.deps?.getUserRole?.(fullUserId) ?? 'viewer')
+      : 'viewer';
 
     const card1: TemplateCard = {
       card_type: 'button_interaction',
@@ -293,8 +298,9 @@ export class WeComAdapter extends BaseIMAdapter {
       button_list: [
         { text: '📋 Projects', key: 'pf_menu_list', style: 1 },
         { text: '📂 Sessions', key: 'pf_menu_sessions', style: 1 },
-        { text: '📊 Status', key: 'pf_menu_status', style: 2 },
+        { text: '📍 Where', key: 'pf_menu_where', style: 1 },
         { text: '🔄 New', key: 'pf_menu_new', style: 2 },
+        { text: '📊 Status', key: 'pf_menu_status', style: 2 },
         { text: '🛑 Stop', key: 'pf_menu_stop', style: 2 },
       ],
       task_id: `pf_menu_${Date.now()}`,
@@ -302,7 +308,7 @@ export class WeComAdapter extends BaseIMAdapter {
 
     const card2: TemplateCard = {
       card_type: 'button_interaction',
-      main_title: { title: 'More Actions' },
+      main_title: { title: 'Development' },
       button_list: [
         { text: '📝 Diff', key: 'pf_menu_diff', style: 2 },
         { text: '✅ Commit', key: 'pf_menu_commit', style: 2 },
@@ -316,6 +322,20 @@ export class WeComAdapter extends BaseIMAdapter {
     try {
       await this.wsClient.sendMessage(chatId, { msgtype: 'template_card', template_card: card1 });
       await this.wsClient.sendMessage(chatId, { msgtype: 'template_card', template_card: card2 });
+
+      if (hasMinimumRole(role, 'admin')) {
+        const card3: TemplateCard = {
+          card_type: 'button_interaction',
+          main_title: { title: 'Admin' },
+          button_list: [
+            { text: '👥 Users', key: 'pf_menu_users', style: 2 },
+            { text: '📊 Audit', key: 'pf_menu_audit', style: 2 },
+            { text: '🩺 Doctor', key: 'pf_menu_doctor', style: 2 },
+          ],
+          task_id: `pf_menu3_${Date.now()}`,
+        };
+        await this.wsClient.sendMessage(chatId, { msgtype: 'template_card', template_card: card3 });
+      }
     } catch (err) {
       console.error('[wecom] sendMenuCard error:', err);
     }
