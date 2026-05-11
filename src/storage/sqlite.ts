@@ -27,6 +27,7 @@ export class Storage {
         opencode_session_id TEXT,
         active_task_id TEXT,
         mode TEXT NOT NULL,
+        sub_agent_verbosity TEXT NOT NULL DEFAULT 'summary',
         updated_at TEXT NOT NULL,
         UNIQUE(platform, chat_id)
       );
@@ -109,13 +110,20 @@ export class Storage {
           opencode_session_id TEXT,
           active_task_id TEXT,
           mode TEXT NOT NULL,
+          sub_agent_verbosity TEXT NOT NULL DEFAULT 'summary',
           updated_at TEXT NOT NULL,
           UNIQUE(platform, chat_id)
         );
-        INSERT INTO sessions_new SELECT id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, updated_at FROM sessions;
+        INSERT INTO sessions_new SELECT id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, 'summary', updated_at FROM sessions;
         DROP TABLE sessions;
         ALTER TABLE sessions_new RENAME TO sessions;
       `);
+    }
+
+    const columnsAfterPlatform = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+    const hasSubAgentVerbosity = columnsAfterPlatform.some((c) => c.name === 'sub_agent_verbosity');
+    if (!hasSubAgentVerbosity) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN sub_agent_verbosity TEXT NOT NULL DEFAULT 'summary'`);
     }
   }
 
@@ -183,8 +191,8 @@ export class Storage {
 
   public upsertSession(session: SessionState): void {
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, platform, chat_id, project_id, opencode_session_id, active_task_id, mode, sub_agent_verbosity, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         platform = excluded.platform,
         chat_id = excluded.chat_id,
@@ -192,6 +200,7 @@ export class Storage {
         opencode_session_id = excluded.opencode_session_id,
         active_task_id = excluded.active_task_id,
         mode = excluded.mode,
+        sub_agent_verbosity = excluded.sub_agent_verbosity,
         updated_at = excluded.updated_at
     `);
 
@@ -203,6 +212,7 @@ export class Storage {
       session.opencode_session_id ?? null,
       session.active_task_id ?? null,
       session.mode,
+      session.sub_agent_verbosity,
       session.updated_at,
     );
   }
