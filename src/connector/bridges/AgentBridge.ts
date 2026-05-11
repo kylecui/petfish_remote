@@ -1,4 +1,5 @@
 import type { TaskQuestionPayload, TaskPermissionPayload, ModelInfo } from '../../protocol/connectorProtocol.js';
+import type { SubAgentVerbosity } from '../../types.js';
 
 export type OutputCallback = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void;
 export interface FileChange {
@@ -11,6 +12,9 @@ export type CompleteCallback = (taskId: string, exitCode: number, stdout: string
 export type FailCallback = (taskId: string, error: string) => void;
 export type QuestionCallback = (taskId: string, payload: TaskQuestionPayload) => void;
 export type PermissionCallback = (taskId: string, payload: TaskPermissionPayload) => void;
+export interface PromptOptions {
+  subAgentVerbosity?: SubAgentVerbosity;
+}
 
 export type AgentType = 'opencode' | 'gemini' | 'codex';
 
@@ -35,6 +39,7 @@ export interface AgentBridge {
     onOutput: OutputCallback,
     onComplete: CompleteCallback,
     onFail: FailCallback,
+    options?: PromptOptions,
   ): boolean;
 
   cancel(taskId: string): void;
@@ -50,6 +55,7 @@ export interface AgentBridge {
   setModelOverride?(model: { providerID: string; modelID: string } | null): void;
   getAvailableModels?(): Promise<{ models: ModelInfo[]; current: { providerID: string; modelID: string } | null }>;
   getModelOverride?(): { providerID: string; modelID: string } | undefined;
+  getSubAgentStatus?(): string;
 }
 
 export interface BridgeConfig {

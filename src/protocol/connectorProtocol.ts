@@ -175,6 +175,7 @@ export const taskStartPayloadSchema = z.object({
   instruction: z.string(),
   rawInstruction: z.string().optional(),
   mode: z.string(),
+  subAgentVerbosity: z.enum(['silent', 'summary', 'verbose']).optional(),
   timeoutSeconds: z.number(),
   env: z.record(z.string()).optional(),
 });
@@ -250,6 +251,20 @@ export const modelListResponsePayloadSchema = z.object({
 
 export type ModelListResponsePayload = z.infer<typeof modelListResponsePayloadSchema>;
 
+export const subAgentStatusRequestPayloadSchema = z.object({
+  projectId: z.string(),
+  requestId: z.string(),
+});
+
+export type SubAgentStatusRequestPayload = z.infer<typeof subAgentStatusRequestPayloadSchema>;
+
+export const subAgentStatusResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  status: z.string(),
+});
+
+export type SubAgentStatusResponsePayload = z.infer<typeof subAgentStatusResponsePayloadSchema>;
+
 export type SessionSwitchPayload = z.infer<typeof sessionSwitchPayloadSchema>;
 
 // ---------------------------------------------------------------------------
@@ -278,6 +293,8 @@ export const MSG = {
   MODEL_OVERRIDE: 'model.override',
   MODEL_LIST: 'model.list',
   MODEL_LIST_RESPONSE: 'model.list.response',
+  SUBAGENT_STATUS: 'subagent.status',
+  SUBAGENT_STATUS_RESPONSE: 'subagent.status.response',
   RESUME_RUNNING: 'resume.running',
   UPGRADE_AVAILABLE: 'upgrade.available',
   ERROR: 'error',
@@ -311,6 +328,8 @@ export const payloadSchemas: Record<string, z.ZodType> = {
   [MSG.MODEL_OVERRIDE]: modelOverridePayloadSchema,
   [MSG.MODEL_LIST]: modelListRequestPayloadSchema,
   [MSG.MODEL_LIST_RESPONSE]: modelListResponsePayloadSchema,
+  [MSG.SUBAGENT_STATUS]: subAgentStatusRequestPayloadSchema,
+  [MSG.SUBAGENT_STATUS_RESPONSE]: subAgentStatusResponsePayloadSchema,
   [MSG.ERROR]: errorPayloadSchema,
 };
 

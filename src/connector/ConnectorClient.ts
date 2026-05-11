@@ -14,6 +14,7 @@ import {
   parseEnvelope,
   modelListRequestPayloadSchema,
   modelOverridePayloadSchema,
+  subAgentStatusRequestPayloadSchema,
   taskStartPayloadSchema,
   taskControlPayloadSchema,
   questionReplyPayloadSchema,
@@ -207,6 +208,9 @@ export class ConnectorClient {
       case MSG.MODEL_LIST:
         this.handleModelList(envelope);
         break;
+      case MSG.SUBAGENT_STATUS:
+        this.handleSubAgentStatus(envelope);
+        break;
       case MSG.UPGRADE_AVAILABLE:
         this.handleUpgradeAvailable(envelope);
         break;
@@ -299,6 +303,15 @@ export class ConnectorClient {
     });
   }
 
+  private handleSubAgentStatus(envelope: Envelope): void {
+    const result = subAgentStatusRequestPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { projectId, requestId } = result.data;
+    const bridge = this.bridges.get(projectId);
+    const status = bridge?.getSubAgentStatus?.() ?? 'Sub-agent status unavailable for this bridge.';
+    this.send(createEnvelope(MSG.SUBAGENT_STATUS_RESPONSE, { requestId, status }));
+  }
+
   private handleUpgradeAvailable(envelope: Envelope): void {
     const payload = envelope.payload as { version?: string; message?: string };
     console.warn(`⚠️  Upgrade available: ${payload.version ?? 'unknown'} — ${payload.message ?? 'Run petfish-connect.sh stop && petfish-connect.sh start to update'}`);
@@ -330,7 +343,10 @@ export class ConnectorClient {
       const instruction = payload.rawInstruction ?? payload.instruction;
       console.log(`[task] routing to ${bridge.agentType} bridge taskId=${payload.taskId} instruction=${instruction.slice(0, 60)}...`);
       this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
-      const ok = bridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail);
+      const ok = bridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail, {
+        subAgentVerbosity: payload.subAgentVerbosity,
+      });
+
       if (!ok) {
         console.warn(`[task] ${bridge.agentType} bridge.prompt returned false for taskId=${payload.taskId}`);
       }

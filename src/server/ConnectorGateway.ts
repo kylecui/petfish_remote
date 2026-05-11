@@ -18,6 +18,7 @@ import {
   modelListResponsePayloadSchema,
   parseEnvelope,
   registerPayloadSchema,
+  subAgentStatusResponsePayloadSchema,
   taskCompletePayloadSchema,
   taskFailPayloadSchema,
   taskOutputPayloadSchema,
@@ -404,6 +405,11 @@ export class ConnectorGateway extends EventEmitter {
     return this.sendToConnector(connectorId, envelope);
   }
 
+  public sendSubAgentStatusRequest(connectorId: string, projectId: string, requestId: string): boolean {
+    const envelope = createEnvelope(MSG.SUBAGENT_STATUS, { projectId, requestId });
+    return this.sendToConnector(connectorId, envelope);
+  }
+
   private handleConnection(ws: WebSocket): void {
     let authenticated = false;
     let connectorId: string | undefined;
@@ -568,6 +574,13 @@ export class ConnectorGateway extends EventEmitter {
         const payload = modelListResponsePayloadSchema.safeParse(envelope.payload);
         if (payload.success) {
           this.emit('model:list', connectorId, payload.data);
+        }
+        break;
+      }
+      case MSG.SUBAGENT_STATUS_RESPONSE: {
+        const payload = subAgentStatusResponsePayloadSchema.safeParse(envelope.payload);
+        if (payload.success) {
+          this.emit('subagent:status', connectorId, payload.data);
         }
         break;
       }
