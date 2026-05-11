@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4j Sub-agent attribution Phase 1 MVP complete. Phase 2 items in backlog.
+> Current stage: P4k Compaction bug mitigations — P1 items (error detection + session depth warning) ready for implementation.
 
 ---
 
@@ -372,6 +372,44 @@
 
 ---
 
+## 🟡 P4k — Compaction Bug Mitigations (v0.4)
+
+> Incident report: `docs/incidents/2026-05-11-tool-use-compaction-bug.md`
+> Root cause: opencode `filterCompacted()` breaks tool_use/tool_result atomic pairs during context compaction (upstream bug)
+> petfish_remote involvement: None — pure text proxy
+> Upstream issues: anomalyco/opencode#14367 (primary), #25774, #22808
+
+### P4k-a: Compaction error detection + model switch suggestion ⬜ P2 (redesigned)
+
+- [ ] Detect `tool_use`/`tool_result` keywords in `session.error` messages in `OpenCodeBridge.handleSessionError()`
+- [ ] Primary suggestion: switch to a non-Claude model (not affected by this bug) if applicable
+- [ ] Secondary fallback: `/pf new` to start fresh session
+- [ ] Investigate: does opencode expose model switching via SDK? Need model list + switch capability
+
+**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L646-677 (`handleSessionError` + `extractErrorMessage`)
+**Dependency**: needs model switching capability in petfish_remote (currently not exposed)
+
+### P4k-b: Session depth warning at ~250 messages ⬜ P1
+
+- [ ] Track assistant message count via `message.updated` SSE events in `handleMessageUpdated()`
+- [ ] At ~250 messages, inject one-time warning into next output suggesting fresh session for Claude models
+- [ ] Reset counter on session switch/new
+
+**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L486-499 (`handleMessageUpdated`) + L590-630 (`handleSessionIdle`)
+
+### P4k-c: Track `session.compacted` SSE events ⬜ P1
+
+- [ ] Add handler for `session.compacted` event in SSE dispatch
+- [ ] Log timestamp, session ID, and message count at compaction time
+
+**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L470-483 (SSE event dispatch)
+
+### ~~P4k-d: Auto-recovery on compaction failure~~ ❌ CANCELLED
+
+Reason: User rejected — switching model is a better recovery than blindly creating a new session with the same model.
+
+---
+
 ## Future (v0.5+)
 
 - [ ] P4j Phase 2: `/pf agents` command — requires WS request/response from server to connector for real-time sub-agent status
@@ -412,3 +450,5 @@
 - [x] P4h: opencode plugin — self-contained Bun plugin with tool interception, permission auto-handling, context injection, custom `petfish_status` tool, connector-side installer
 - [x] P4i: Menu redesign — grouped layout (Project&Session / Task Control / Development / Admin), role-based admin row visibility, `getUserRole` in AdapterDeps, all 5 adapters + MessageRenderer updated — commit `c653a34`
 - [x] P4j: Sub-agent attribution Phase 1 MVP — `SubAgentTracker` class, SSE `session.created` interception, child session idle/error routing, summary injection on parent completion, error forwarding via callback, render policy extensions (5 adapters), 24 unit tests
+- [x] TUI question disclaimer — added to all 5 adapters' `sendQuestion()` — commit `ab18f75`
+- [x] Tool_use/tool_result compaction bug investigation — confirmed upstream opencode bug, incident report written at `docs/incidents/2026-05-11-tool-use-compaction-bug.md`
