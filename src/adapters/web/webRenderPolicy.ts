@@ -18,6 +18,14 @@ export const webRenderPolicy: MessageRenderPolicy = {
     return `${prefix}Task \`${taskId}\` ❌ error: ${error}`;
   },
 
+  formatSubAgentSummary(summary: string): string {
+    return summary;
+  },
+
+  formatSubAgentError(agentName: string, error: string): string {
+    return `⚠️ Sub-agent failed: ${agentName} — ${error}`;
+  },
+
   truncate(text: string): string {
     if (text.length > 65536 - 50) {
       return text.slice(0, 65536 - 50) + '\n...(truncated)';

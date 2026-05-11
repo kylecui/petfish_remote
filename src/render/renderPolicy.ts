@@ -3,6 +3,8 @@ export interface MessageRenderPolicy {
   formatHeader(projectLabel: string): string;
   formatCompletion(taskId: string, projectLabel: string | undefined, totalChars: number, messageCount: number, exitCode: number): string;
   formatError(taskId: string, projectLabel: string | undefined, error: string): string;
+  formatSubAgentSummary(summary: string): string;
+  formatSubAgentError(agentName: string, error: string): string;
   truncate(text: string): string;
 }
 
@@ -22,6 +24,14 @@ export const telegramRenderPolicy: MessageRenderPolicy = {
   formatError(taskId, projectLabel, error): string {
     const prefix = projectLabel ? `📂 *${projectLabel}* · ` : '';
     return `${prefix}Task \`${taskId}\` ❌ error: ${error}`;
+  },
+
+  formatSubAgentSummary(summary: string): string {
+    return summary;
+  },
+
+  formatSubAgentError(agentName: string, error: string): string {
+    return `⚠️ Sub-agent failed: ${agentName} — ${error}`;
   },
 
   truncate(text: string): string {

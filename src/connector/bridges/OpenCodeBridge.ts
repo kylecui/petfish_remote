@@ -13,6 +13,7 @@ import type {
   PermissionCallback,
 } from './AgentBridge.js';
 import { createClient, type OpencodeClient } from './OpencodeClient.js';
+import { SubAgentTracker } from '../../render/SubAgentTracker.js';
 
 const execAsync = promisify(exec);
 
@@ -57,6 +58,7 @@ export class OpenCodeBridge implements AgentBridge {
   private sessionBusy = false;
   private onQuestion: QuestionCallback | undefined;
   private onPermission: PermissionCallback | undefined;
+  private readonly subAgentTracker = new SubAgentTracker();
 
   private readonly cwd: string | undefined;
 
@@ -70,6 +72,10 @@ export class OpenCodeBridge implements AgentBridge {
 
   public setPermissionCallback(cb: PermissionCallback): void {
     this.onPermission = cb;
+  }
+
+  public getSubAgentStatus(): string {
+    return this.subAgentTracker.getStatus();
   }
 
   public async init(): Promise<void> {
@@ -209,6 +215,10 @@ export class OpenCodeBridge implements AgentBridge {
 
     this.pending.set(taskId, entry);
     this.pendingCorrelation = taskId;
+    this.subAgentTracker.reset();
+    this.subAgentTracker.setErrorCallback((text) => {
+      onOutput(taskId, 'stdout', '\n' + text + '\n');
+    });
 
     const waitForCorrelation = (): Promise<boolean> => {
       return new Promise((resolve) => {
@@ -458,6 +468,8 @@ export class OpenCodeBridge implements AgentBridge {
       this.handleMessageUpdated(event.properties);
     } else if (event.type === 'message.part.updated') {
       this.handlePartUpdated(event.properties);
+    } else if (event.type === 'session.created') {
+      this.handleSessionCreated(event.properties);
     } else if (event.type === 'session.idle') {
       this.handleSessionIdle(event.properties);
     } else if (event.type === 'session.status') {
@@ -565,10 +577,24 @@ export class OpenCodeBridge implements AgentBridge {
     entry.onOutput(taskId, 'stdout', text);
   }
 
+  private handleSessionCreated(props: Record<string, unknown> | undefined): void {
+    if (!props) return;
+    const info = props['info'] as { id?: string; parentID?: string; agent?: string } | undefined;
+    if (!info?.id || !info?.parentID) return;
+    if (info.parentID !== this.sessionId) return;
+    const agentName = info.agent ?? 'unknown';
+    this.subAgentTracker.register(info.id, info.parentID, agentName);
+    console.log(`[OpenCodeBridge] sub-agent registered: ${agentName} session=${info.id}`);
+  }
+
   private handleSessionIdle(props: Record<string, unknown> | undefined): void {
     if (!props) return;
     const sessionID = props['sessionID'] as string | undefined;
-    if (sessionID !== this.sessionId) return;
+
+    if (sessionID && sessionID !== this.sessionId) {
+      this.subAgentTracker.markCompleted(sessionID);
+      return;
+    }
 
     this.sessionBusy = false;
 
@@ -576,12 +602,14 @@ export class OpenCodeBridge implements AgentBridge {
       if (!entry.settled) {
         entry.settled = true;
         this.cleanup(taskId);
+        const summary = this.subAgentTracker.getSummary();
         if (entry.stdout.length === 0) {
           void (async () => {
             const errorMsg = await this.fetchLastError(entry.assistantMessageId);
             if (errorMsg) {
               entry.onFail(taskId, errorMsg);
             } else {
+              if (summary) entry.onOutput(taskId, 'stdout', '\n' + summary);
               const files = await this.fetchFileChanges();
               entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
             }
@@ -589,11 +617,14 @@ export class OpenCodeBridge implements AgentBridge {
           continue;
         }
         void (async () => {
+          if (summary) entry.onOutput(taskId, 'stdout', '\n' + summary);
           const files = await this.fetchFileChanges();
           entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
         })();
       }
     }
+
+    this.subAgentTracker.reset();
 
     this.scheduleIdleDrain();
   }
@@ -615,7 +646,13 @@ export class OpenCodeBridge implements AgentBridge {
   private handleSessionError(props: Record<string, unknown> | undefined): void {
     if (!props) return;
     const sessionID = props['sessionID'] as string | undefined;
-    if (sessionID && sessionID !== this.sessionId) return;
+
+    if (sessionID && sessionID !== this.sessionId) {
+      const error = props['error'] as unknown;
+      this.subAgentTracker.markFailed(sessionID, this.extractErrorMessage(error));
+      return;
+    }
+
     const error = props['error'] as unknown;
     const errorMsg = this.extractErrorMessage(error);
 

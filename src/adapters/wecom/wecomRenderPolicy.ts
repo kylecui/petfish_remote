@@ -18,6 +18,14 @@ export const wecomRenderPolicy: MessageRenderPolicy = {
     return `${prefix}Task \`${taskId}\` ❌ error: ${error}`;
   },
 
+  formatSubAgentSummary(summary: string): string {
+    return summary;
+  },
+
+  formatSubAgentError(agentName: string, error: string): string {
+    return `⚠️ Sub-agent failed: ${agentName} — ${error}`;
+  },
+
   truncate(text: string): string {
     if (text.length > 4000 - 50) {
       return text.slice(0, 4000 - 50) + '\n...(truncated)';
