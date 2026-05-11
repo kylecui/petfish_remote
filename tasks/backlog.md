@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4k Compaction bug mitigations — P1 items (error detection + session depth warning) ready for implementation.
+> Current stage: P4k Compaction bug mitigations — P4k-a done, P4k-b/c remaining. P4j Phase 2 complete.
 
 ---
 
@@ -379,15 +379,22 @@
 > petfish_remote involvement: None — pure text proxy
 > Upstream issues: anomalyco/opencode#14367 (primary), #25774, #22808
 
-### P4k-a: Compaction error detection + model switch suggestion ⬜ P2 (redesigned)
+### P4k-a: Compaction error detection + `/pf model` command ✅ DONE
 
-- [ ] Detect `tool_use`/`tool_result` keywords in `session.error` messages in `OpenCodeBridge.handleSessionError()`
-- [ ] Primary suggestion: switch to a non-Claude model (not affected by this bug) if applicable
-- [ ] Secondary fallback: `/pf new` to start fresh session
-- [ ] Investigate: does opencode expose model switching via SDK? Need model list + switch capability
+**完成日期**: 2026-05-11
 
-**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L646-677 (`handleSessionError` + `extractErrorMessage`)
-**Dependency**: needs model switching capability in petfish_remote (currently not exposed)
+- [x] Detect `tool_use`/`tool_result` keywords in error messages → suggest `/pf model`
+- [x] `/pf model` — list connected tool-capable models with current override indicator
+- [x] `/pf model <provider/model>` — set per-prompt model override (sticky via SDK)
+- [x] `/pf model clear` — remove override, revert to session default
+- [x] Full WS round-trip: server → gateway → connector → bridge → opencode SDK
+- [x] Updated depth/compaction warnings to prefer `/pf model` over `/pf new`
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 95/95 tests passed
+- ✅ Deployed to production
 
 ### P4k-b: Session depth warning at ~250 messages ⬜ P1
 
@@ -410,10 +417,29 @@ Reason: User rejected — switching model is a better recovery than blindly crea
 
 ---
 
+## ✅ P4j Phase 2 — Sub-Agent Commands & Settings (v0.4)
+
+**完成日期**: 2026-05-11
+
+- [x] `SubAgentVerbosity` type added to `SessionState`, persisted in SQLite with migration
+- [x] `/pf agents` — query real-time sub-agent status from connector via WS round-trip
+- [x] `/pf subagents <silent|summary|verbose>` — per-session persistent verbosity setting
+- [x] Per-task verbosity threaded through full dispatch chain (TaskManager → OpenCodeCliRunner → RuntimeCommand → RemoteRuntime → TaskStartPayload → ConnectorClient → OpenCodeBridge)
+- [x] Verbose mode emits real-time lifecycle events; silent mode suppresses all output; summary mode (default) shows aggregated summary + immediate errors
+- [x] CodexBridge and GeminiBridge updated with `PromptOptions` signature compatibility
+
+**验收结果**:
+- ✅ `tsc --noEmit` — 零错误
+- ✅ `npm run build` — 编译成功
+- ✅ `npm test` — 95/95 tests passed
+- ✅ Deployed to production
+
+---
+
 ## Future (v0.5+)
 
-- [ ] P4j Phase 2: `/pf agents` command — requires WS request/response from server to connector for real-time sub-agent status
-- [ ] P4j Phase 2: `/pf subagents` setting — user-configurable verbosity (`silent`/`summary`/`verbose`) for sub-agent summary injection
+- [ ] P4k-b: Session depth warning at ~250 messages
+- [ ] P4k-c: Track `session.compacted` SSE events
 - [ ] P4j Phase 2: Server-side render policy integration — use `formatSubAgentSummary()` / `formatSubAgentError()` (already implemented in all 5 policies) for platform-native formatting
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 
@@ -452,3 +478,6 @@ Reason: User rejected — switching model is a better recovery than blindly crea
 - [x] P4j: Sub-agent attribution Phase 1 MVP — `SubAgentTracker` class, SSE `session.created` interception, child session idle/error routing, summary injection on parent completion, error forwarding via callback, render policy extensions (5 adapters), 24 unit tests
 - [x] TUI question disclaimer — added to all 5 adapters' `sendQuestion()` — commit `ab18f75`
 - [x] Tool_use/tool_result compaction bug investigation — confirmed upstream opencode bug, incident report written at `docs/incidents/2026-05-11-tool-use-compaction-bug.md`
+- [x] P4k-a: Compaction error detection + `/pf model` command — error keyword detection, model list/switch/clear via SDK, WS round-trip plumbing, depth warning updated
+- [x] P4j Phase 2: `/pf agents` command — WS round-trip from server to connector for real-time sub-agent status query
+- [x] P4j Phase 2: `/pf subagents` setting — per-session persistent verbosity (`silent`/`summary`/`verbose`), threaded through full dispatch chain, verbose lifecycle events
