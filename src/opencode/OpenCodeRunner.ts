@@ -1,11 +1,12 @@
 import type { OutputStream } from '../runtime/RuntimeConnector.js';
-import type { ExecutionMode } from '../types.js';
+import type { ExecutionMode, SubAgentVerbosity } from '../types.js';
 
 export interface RunParams {
   projectPath: string;
   projectId?: string;
   instruction: string;
   mode: ExecutionMode;
+  subAgentVerbosity?: SubAgentVerbosity;
   sessionId?: string;
   timeoutSeconds?: number;
   onOutput?: (chunk: string, stream: OutputStream) => void;

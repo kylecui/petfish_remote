@@ -4,7 +4,7 @@ import { OpenCodeCliRunner } from '../opencode/OpenCodeCliRunner.js';
 import type { OutputStream } from '../runtime/RuntimeConnector.js';
 import type { RuntimeRouter } from '../runtime/RuntimeRouter.js';
 import type { Storage } from '../storage/sqlite.js';
-import type { ExecutionMode, ProjectConfig, TaskRecord, TaskStatus } from '../types.js';
+import type { ExecutionMode, ProjectConfig, TaskRecord, TaskStatus, SubAgentVerbosity } from '../types.js';
 import type { PolicyAction, PolicyEngine } from './PolicyEngine.js';
 import type { ProjectRegistry } from './ProjectRegistry.js';
 
@@ -70,6 +70,7 @@ export class TaskManager {
   public async dispatchTask(
     taskId: string,
     onOutput?: (chunk: string, stream: OutputStream) => void,
+    subAgentVerbosity?: SubAgentVerbosity,
   ): Promise<TaskDispatchResult> {
     const task = this.storage.getTask(taskId);
     if (!task) {
@@ -111,7 +112,7 @@ export class TaskManager {
     }
 
     this.updateStatus(taskId, 'running');
-    return this.executeTask(taskId, task, project, onOutput);
+    return this.executeTask(taskId, task, project, onOutput, subAgentVerbosity);
   }
 
   private async executeTask(
@@ -119,6 +120,7 @@ export class TaskManager {
     task: TaskRecord,
     project: ProjectConfig,
     onOutput?: (chunk: string, stream: OutputStream) => void,
+    subAgentVerbosity?: SubAgentVerbosity,
   ): Promise<TaskDispatchResult> {
     let connector: ReturnType<RuntimeRouter['getConnector']>;
     try {
@@ -137,6 +139,7 @@ export class TaskManager {
         projectId: task.project_id,
         instruction: task.instruction,
         mode: task.mode,
+        subAgentVerbosity,
         sessionId: taskId,
         timeoutSeconds: 1800,
         onOutput,
@@ -179,6 +182,7 @@ export class TaskManager {
   public approveTask(
     taskId: string,
     onOutput?: (chunk: string, stream: OutputStream) => void,
+    subAgentVerbosity?: SubAgentVerbosity,
   ): Promise<TaskDispatchResult> {
     const task = this.storage.getTask(taskId);
     if (!task) {
@@ -195,7 +199,7 @@ export class TaskManager {
       return Promise.resolve({ output: `Project not found: ${task.project_id}`, exitCode: -1 });
     }
 
-    return this.executeTask(taskId, task, project, onOutput);
+    return this.executeTask(taskId, task, project, onOutput, subAgentVerbosity);
   }
 
   public denyTask(taskId: string): void {

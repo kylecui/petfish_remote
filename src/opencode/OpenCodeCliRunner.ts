@@ -24,10 +24,11 @@ export class OpenCodeCliRunner implements OpenCodeRunner {
       taskId: params.sessionId,
       projectId: params.projectId,
       instruction: prompt,
-      rawInstruction: params.instruction,
-      mode: params.mode,
-      onOutput: params.onOutput,
-    });
+        rawInstruction: params.instruction,
+        mode: params.mode,
+        subAgentVerbosity: params.subAgentVerbosity,
+        onOutput: params.onOutput,
+      });
 
     return {
       output: [result.stdout, result.stderr].filter((part) => part.length > 0).join('\n'),

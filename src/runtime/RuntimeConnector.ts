@@ -1,4 +1,5 @@
 import type { RuntimeType } from '../types.js';
+import type { SubAgentVerbosity } from '../types.js';
 
 export type OutputStream = 'stdout' | 'stderr';
 
@@ -12,6 +13,7 @@ export interface RuntimeCommand {
   instruction?: string;
   rawInstruction?: string;
   mode?: string;
+  subAgentVerbosity?: SubAgentVerbosity;
   onOutput?: (chunk: string, stream: OutputStream) => void;
 }
 

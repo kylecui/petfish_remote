@@ -81,6 +81,7 @@ export class RemoteRuntime implements RuntimeConnector {
         instruction: command.instruction ?? command.command,
         rawInstruction: command.rawInstruction,
         mode: command.mode ?? 'read_only',
+        subAgentVerbosity: command.subAgentVerbosity,
         timeoutSeconds: command.timeoutSeconds ?? 1800,
         env: command.env,
       };
