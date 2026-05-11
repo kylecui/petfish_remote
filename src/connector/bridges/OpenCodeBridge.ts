@@ -56,6 +56,8 @@ export class OpenCodeBridge implements AgentBridge {
   private pendingCorrelation: string | undefined;
   private stopped = false;
   private sessionBusy = false;
+  private messageCount = 0;
+  private depthWarned = false;
   private onQuestion: QuestionCallback | undefined;
   private onPermission: PermissionCallback | undefined;
   private readonly subAgentTracker = new SubAgentTracker();
@@ -326,6 +328,8 @@ export class OpenCodeBridge implements AgentBridge {
         this.sessionId = sessionId;
         this.lastCompletedAssistantId = undefined;
         this.sessionBusy = false;
+        this.messageCount = 0;
+        this.depthWarned = false;
       }
       console.log(`[OpenCodeBridge] new session created and bound, session=${this.sessionId}`);
     } catch (err) {
@@ -379,6 +383,8 @@ export class OpenCodeBridge implements AgentBridge {
     this.sessionId = resolvedId;
     this.lastCompletedAssistantId = undefined;
     this.sessionBusy = false;
+    this.messageCount = 0;
+    this.depthWarned = false;
     console.log(`[OpenCodeBridge] switched to session=${resolvedId}`);
   }
 
@@ -480,6 +486,8 @@ export class OpenCodeBridge implements AgentBridge {
       this.handleQuestionAsked(event.properties);
     } else if (event.type === 'permission.asked') {
       this.handlePermissionAsked(event.properties);
+    } else if (event.type === 'session.compacted') {
+      this.handleSessionCompacted(event.properties);
     }
   }
 
@@ -501,6 +509,12 @@ export class OpenCodeBridge implements AgentBridge {
 
     if (info.role === 'assistant' && info.id && info.time?.completed) {
       this.lastCompletedAssistantId = info.id;
+      this.messageCount++;
+      if (this.messageCount >= 250 && !this.depthWarned) {
+        this.depthWarned = true;
+        console.log(`[OpenCodeBridge] session depth warning: ${this.messageCount} messages`);
+        this.emitDepthWarning();
+      }
     }
 
     if (info.role === 'assistant' && info.error) {
@@ -659,6 +673,30 @@ export class OpenCodeBridge implements AgentBridge {
     for (const [taskId, entry] of this.pending) {
       if (!entry.settled) {
         this.settle(taskId, errorMsg);
+      }
+    }
+  }
+
+  private handleSessionCompacted(props: Record<string, unknown> | undefined): void {
+    const sessionID = (props?.['sessionID'] ?? props?.['id']) as string | undefined;
+    if (sessionID && sessionID !== this.sessionId) return;
+    console.log(`[OpenCodeBridge] session.compacted received for session=${sessionID ?? this.sessionId}`);
+    for (const entry of this.pending.values()) {
+      if (!entry.settled) {
+        entry.onOutput(entry.taskId, 'stdout',
+          '\n⚠️ Session history was compacted by opencode. ' +
+          'If errors occur, consider switching to a different model or starting a new session (`/pf new`).\n');
+      }
+    }
+  }
+
+  private emitDepthWarning(): void {
+    for (const entry of this.pending.values()) {
+      if (!entry.settled) {
+        entry.onOutput(entry.taskId, 'stdout',
+          '\n⚠️ This session has reached ~250 messages. ' +
+          'Long sessions may trigger compaction issues with Claude models. ' +
+          'Consider starting a new session (`/pf new`) soon.\n');
       }
     }
   }
