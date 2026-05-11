@@ -15,6 +15,7 @@ import {
   type RegisterPayload,
   MSG,
   createEnvelope,
+  modelListResponsePayloadSchema,
   parseEnvelope,
   registerPayloadSchema,
   taskCompletePayloadSchema,
@@ -393,6 +394,16 @@ export class ConnectorGateway extends EventEmitter {
     return this.sendToConnector(connectorId, envelope);
   }
 
+  public sendModelListRequest(connectorId: string, projectId: string, requestId: string): boolean {
+    const envelope = createEnvelope(MSG.MODEL_LIST, { projectId, requestId });
+    return this.sendToConnector(connectorId, envelope);
+  }
+
+  public sendModelOverride(connectorId: string, projectId: string, model: { providerID: string; modelID: string } | null): boolean {
+    const envelope = createEnvelope(MSG.MODEL_OVERRIDE, { projectId, model });
+    return this.sendToConnector(connectorId, envelope);
+  }
+
   private handleConnection(ws: WebSocket): void {
     let authenticated = false;
     let connectorId: string | undefined;
@@ -550,6 +561,13 @@ export class ConnectorGateway extends EventEmitter {
         const payload = sessionListResponsePayloadSchema.safeParse(envelope.payload);
         if (payload.success) {
           this.emit('session:list', connectorId, payload.data);
+        }
+        break;
+      }
+      case MSG.MODEL_LIST_RESPONSE: {
+        const payload = modelListResponsePayloadSchema.safeParse(envelope.payload);
+        if (payload.success) {
+          this.emit('model:list', connectorId, payload.data);
         }
         break;
       }

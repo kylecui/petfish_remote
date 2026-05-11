@@ -14,6 +14,7 @@ import type {
 } from './AgentBridge.js';
 import { createClient, type OpencodeClient } from './OpencodeClient.js';
 import { SubAgentTracker } from '../../render/SubAgentTracker.js';
+import type { ModelInfo } from '../../protocol/connectorProtocol.js';
 
 const execAsync = promisify(exec);
 
@@ -58,6 +59,7 @@ export class OpenCodeBridge implements AgentBridge {
   private sessionBusy = false;
   private messageCount = 0;
   private depthWarned = false;
+  private modelOverride: { providerID: string; modelID: string } | undefined;
   private onQuestion: QuestionCallback | undefined;
   private onPermission: PermissionCallback | undefined;
   private readonly subAgentTracker = new SubAgentTracker();
@@ -78,6 +80,44 @@ export class OpenCodeBridge implements AgentBridge {
 
   public getSubAgentStatus(): string {
     return this.subAgentTracker.getStatus();
+  }
+
+  public setModelOverride(model: { providerID: string; modelID: string } | null): void {
+    this.modelOverride = model ?? undefined;
+  }
+
+  public getModelOverride(): { providerID: string; modelID: string } | undefined {
+    return this.modelOverride;
+  }
+
+  public async getAvailableModels(): Promise<{ models: ModelInfo[]; current: { providerID: string; modelID: string } | null }> {
+    if (!this.client) {
+      return { models: [], current: this.modelOverride ?? null };
+    }
+
+    const { data, error } = await this.client.provider.list();
+    if (error || !data) {
+      throw new Error(this.extractErrorMessage(error));
+    }
+
+    const connected = new Set(Array.isArray(data.connected) ? data.connected : []);
+    const models: ModelInfo[] = [];
+
+    for (const provider of Array.isArray(data.all) ? data.all : []) {
+      if (!connected.has(provider.id)) continue;
+      for (const model of Object.values(provider.models ?? {})) {
+        if (model.tool_call === false) continue;
+        models.push({
+          providerID: provider.id,
+          providerName: provider.name,
+          modelID: model.id,
+          modelName: model.name,
+        });
+      }
+    }
+
+    models.sort((a, b) => `${a.providerID}/${a.modelID}`.localeCompare(`${b.providerID}/${b.modelID}`));
+    return { models, current: this.modelOverride ?? null };
   }
 
   public async init(): Promise<void> {
@@ -252,7 +292,10 @@ export class OpenCodeBridge implements AgentBridge {
         for (let attempt = 0; attempt < this.maxSubmitRetries; attempt++) {
           const { error } = await this.client.session.promptAsync({
             path: { id: this.sessionId },
-            body: { parts: [{ type: 'text', text: instruction }] },
+            body: {
+              parts: [{ type: 'text', text: instruction }],
+              ...(this.modelOverride ? { model: this.modelOverride } : {}),
+            },
           });
 
           if (error) {
@@ -668,7 +711,7 @@ export class OpenCodeBridge implements AgentBridge {
     }
 
     const error = props['error'] as unknown;
-    const errorMsg = this.extractErrorMessage(error);
+    const errorMsg = this.withModelSwitchHint(this.extractErrorMessage(error));
 
     for (const [taskId, entry] of this.pending) {
       if (!entry.settled) {
@@ -685,7 +728,7 @@ export class OpenCodeBridge implements AgentBridge {
       if (!entry.settled) {
         entry.onOutput(entry.taskId, 'stdout',
           '\n⚠️ Session history was compacted by opencode. ' +
-          'If errors occur, consider switching to a different model or starting a new session (`/pf new`).\n');
+          'If errors occur, consider switching to a different model with `/pf model` before trying `/pf new`.\n');
       }
     }
   }
@@ -696,9 +739,14 @@ export class OpenCodeBridge implements AgentBridge {
         entry.onOutput(entry.taskId, 'stdout',
           '\n⚠️ This session has reached ~250 messages. ' +
           'Long sessions may trigger compaction issues with Claude models. ' +
-          'Consider starting a new session (`/pf new`) soon.\n');
+          'Consider switching models with `/pf model` or starting a new session (`/pf new`) soon.\n');
       }
     }
+  }
+
+  private withModelSwitchHint(error: string): string {
+    if (!/tool_use|tool_result/i.test(error)) return error;
+    return `${error}\n\nMitigation: switch to a different connected model with \`/pf model\`, then retry. If needed, use \`/pf new\` after switching.`;
   }
 
   private extractErrorMessage(error: unknown): string {

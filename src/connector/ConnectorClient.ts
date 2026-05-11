@@ -12,6 +12,8 @@ import {
   MSG,
   createEnvelope,
   parseEnvelope,
+  modelListRequestPayloadSchema,
+  modelOverridePayloadSchema,
   taskStartPayloadSchema,
   taskControlPayloadSchema,
   questionReplyPayloadSchema,
@@ -199,6 +201,12 @@ export class ConnectorClient {
       case MSG.SESSION_SWITCH:
         this.handleSessionSwitch(envelope);
         break;
+      case MSG.MODEL_OVERRIDE:
+        this.handleModelOverride(envelope);
+        break;
+      case MSG.MODEL_LIST:
+        this.handleModelList(envelope);
+        break;
       case MSG.UPGRADE_AVAILABLE:
         this.handleUpgradeAvailable(envelope);
         break;
@@ -259,6 +267,35 @@ export class ConnectorClient {
     }
     bridge.switchSession(sessionId).catch((err: unknown) => {
       console.error(`[session] switchSession failed for project=${projectId} session=${sessionId}:`, err);
+    });
+  }
+
+  private handleModelOverride(envelope: Envelope): void {
+    const result = modelOverridePayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { projectId, model } = result.data;
+    const bridge = this.bridges.get(projectId);
+    if (!bridge?.setModelOverride) {
+      console.warn(`[model] no bridge for project=${projectId}, cannot set model override`);
+      return;
+    }
+    bridge.setModelOverride(model);
+  }
+
+  private handleModelList(envelope: Envelope): void {
+    const result = modelListRequestPayloadSchema.safeParse(envelope.payload);
+    if (!result.success) return;
+    const { projectId, requestId } = result.data;
+    const bridge = this.bridges.get(projectId);
+    if (!bridge?.getAvailableModels) {
+      this.send(createEnvelope(MSG.MODEL_LIST_RESPONSE, { requestId, models: [], current: null }));
+      return;
+    }
+    bridge.getAvailableModels().then(({ models, current }) => {
+      this.send(createEnvelope(MSG.MODEL_LIST_RESPONSE, { requestId, models, current }));
+    }).catch((err: unknown) => {
+      console.error(`[model] getAvailableModels failed for project=${projectId}:`, err);
+      this.send(createEnvelope(MSG.MODEL_LIST_RESPONSE, { requestId, models: [], current: null }));
     });
   }
 
