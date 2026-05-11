@@ -592,7 +592,7 @@ export class FeishuAdapter extends BaseIMAdapter {
       const q = payload.questions[qi];
       elements.push({
         tag: 'markdown',
-        content: `🤔 **Agent is asking (${qi + 1}/${payload.questions.length}):**\n\n${q.header ? `**${q.header}**\n` : ''}${q.question}`,
+        content: `🤔 **Agent is asking (${qi + 1}/${payload.questions.length}):**\n*⚡ Forwarded from TUI session — ignore if already answered there.*\n\n${q.header ? `**${q.header}**\n` : ''}${q.question}`,
       });
 
       const buttons = q.options.map((opt, oi) => ({

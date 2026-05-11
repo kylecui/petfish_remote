@@ -474,7 +474,8 @@ export class TelegramAdapter extends BaseIMAdapter {
 
       if (q.options.length % 2 === 1) keyboard.row();
 
-      let text = `🤔 *Agent is asking (${qi + 1}/${payload.questions.length}):*\n\n`;
+      let text = `🤔 *Agent is asking (${qi + 1}/${payload.questions.length}):*\n`;
+      text += `_⚡ Forwarded from TUI session — ignore if already answered there._\n\n`;
       if (q.header) text += `*${q.header}*\n`;
       text += q.question;
       if (q.custom) text += '\n\n💬 Or reply with your own answer.';

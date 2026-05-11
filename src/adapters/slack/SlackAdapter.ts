@@ -403,7 +403,7 @@ export class SlackAdapter extends BaseIMAdapter {
       const q = payload.questions[qi];
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `🤔 *Agent is asking (${qi + 1}/${payload.questions.length}):*\n\n${q.header ? `*${q.header}*\n` : ''}${q.question}` },
+        text: { type: 'mrkdwn', text: `🤔 *Agent is asking (${qi + 1}/${payload.questions.length}):*\n_⚡ Forwarded from TUI session — ignore if already answered there._\n\n${q.header ? `*${q.header}*\n` : ''}${q.question}` },
       });
 
       const buttons = q.options.map((opt, oi) => ({

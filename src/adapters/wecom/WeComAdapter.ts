@@ -421,7 +421,7 @@ export class WeComAdapter extends BaseIMAdapter {
 
       const card: TemplateCard = {
         card_type: 'button_interaction',
-        main_title: { title: `🤔 ${questionTitle}`, desc: q.question },
+        main_title: { title: `🤔 ${questionTitle}`, desc: `⚡ Forwarded from TUI session — ignore if already answered there.\n\n${q.question}` },
         button_list: buttons,
         task_id: `pf_q_${payload.questionId}_${qi}`,
       };

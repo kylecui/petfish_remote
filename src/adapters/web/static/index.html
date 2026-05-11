@@ -262,6 +262,7 @@ header .dot.ok{background:var(--green)}
   function renderQuestion(payload) {
     hideTyping();
     var html = '<h4>' + esc(payload.headline || 'Question') + '</h4>';
+    html += '<p style="color:#888;font-size:0.85em;margin:2px 0 8px">⚡ Forwarded from TUI session — ignore if already answered there.</p>';
     if (payload.text) html += '<p>' + esc(payload.text) + '</p>';
     html += '<div class="options">';
     (payload.options || []).forEach(function(row, ri) {
