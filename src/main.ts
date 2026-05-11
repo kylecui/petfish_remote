@@ -33,7 +33,7 @@ import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
 import type { TaskQuestionPayload, TaskPermissionPayload, ModelInfo } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
-import type { ChatEvent, ChatResponse, ExecutionMode, Platform, UserRole } from './types.js';
+import type { ChatEvent, ChatResponse, ExecutionMode, Platform, UserRole, SubAgentVerbosity } from './types.js';
 import { DEFAULT_MODES_BY_ROLE, COMMAND_MIN_ROLE, hasMinimumRole } from './types.js';
 
 const configDir = process.env.PETFISH_CONFIG_DIR ?? './config';
@@ -75,6 +75,7 @@ const questionIdToContext = new Map<string, { connectorId: string; taskId: strin
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const sessionListCallbacks = new Map<string, { resolve: (sessions: SessionListEntry[]) => void }>();
 const modelListCallbacks = new Map<string, { resolve: (result: { models: ModelInfo[]; current: { providerID: string; modelID: string } | null }) => void }>();
+const subAgentStatusCallbacks = new Map<string, { resolve: (status: string) => void }>();
 
 function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
@@ -260,6 +261,14 @@ if (config.gateway.enabled) {
     }
   });
 
+  gateway.on('subagent:status', (_connectorId: string, payload: { requestId: string; status: string }) => {
+    const cb = subAgentStatusCallbacks.get(payload.requestId);
+    if (cb) {
+      subAgentStatusCallbacks.delete(payload.requestId);
+      cb.resolve(payload.status);
+    }
+  });
+
   void gateway.start();
   console.log(`ConnectorGateway started on :${config.gateway.port}${config.gateway.path}`);
 }
@@ -273,6 +282,8 @@ function getAdapterForEvent(event: ChatEvent): IMAdapter | undefined {
 }
 
 function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, instruction: string, mode: ExecutionMode): void {
+  const session = sessionManager.getSession(event.platform, event.chat_id);
+  const subAgentVerbosity = session?.sub_agent_verbosity ?? 'summary';
   const user = storage.getUser(userId);
   if (user && !user.allowed_modes.includes(mode)) {
     const eventAdapter = getAdapterForEvent(event);
@@ -358,7 +369,7 @@ function dispatchAgentTask(event: ChatEvent, projectId: string, userId: string, 
 
   taskManager.dispatchTask(task.task_id, (chunk) => {
     batcher.append(chunk);
-  }).then((result) => {
+  }, subAgentVerbosity).then((result) => {
     clearInterval(typingInterval);
     const a = getAdapterForEvent(event);
     if (a) a.clearPendingInteraction(event.chat_id);
@@ -598,7 +609,7 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
 
         taskManager.approveTask(approvalId, (chunk) => {
           batcher.append(chunk);
-        }).then((result) => {
+        }, sessionManager.getSession(event.platform, event.chat_id)?.sub_agent_verbosity ?? 'summary').then((result) => {
           clearInterval(typingInterval);
           void batcher.complete(result.exitCode);
           auditLogger.log({ task_id: approvalId, user_id: userId, event_type: 'task_completed', payload: JSON.stringify({ exitCode: result.exitCode, approved: true }) });
@@ -796,6 +807,35 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       } else {
         responseText = messageRenderer.renderSessionList(sessions);
       }
+      break;
+    }
+    case 'agents': {
+      const session = sessionManager.getSession(event.platform, event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      responseText = await fetchSubAgentStatus(event.platform, event.chat_id);
+      break;
+    }
+    case 'subagents': {
+      const session = sessionManager.getSession(event.platform, event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      const verbosity = parsed.args[0] as SubAgentVerbosity | undefined;
+      if (!verbosity) {
+        responseText = `Current sub-agent visibility: ${session.sub_agent_verbosity}\nUsage: /pf subagents <silent|summary|verbose>`;
+        break;
+      }
+      if (!['silent', 'summary', 'verbose'].includes(verbosity)) {
+        responseText = 'Invalid sub-agent visibility. Use: silent, summary, or verbose.';
+        break;
+      }
+      sessionManager.updateSubAgentVerbosity(event.platform, event.chat_id, verbosity);
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'subagent_verbosity_changed', payload: JSON.stringify({ project_id: session.project_id, sub_agent_verbosity: verbosity }) });
+      responseText = `🔧 Sub-agent visibility set to ${verbosity}.`;
       break;
     }
     case 'switch': {
@@ -1014,6 +1054,24 @@ function fetchModels(platform: Platform, chatId: string): Promise<{ models: Mode
       }
     }, 10_000);
     gateway!.sendModelListRequest(connector.connectorId, session.project_id, requestId);
+  });
+}
+
+function fetchSubAgentStatus(platform: Platform, chatId: string): Promise<string> {
+  const session = sessionManager.getSession(platform, chatId);
+  if (!session || !gateway) return Promise.resolve('No sub-agents in current session.');
+  const connector = gateway.registry.findByProject(session.project_id);
+  if (!connector) return Promise.resolve('Connector not connected.');
+  const requestId = `sa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise<string>((resolve) => {
+    subAgentStatusCallbacks.set(requestId, { resolve });
+    setTimeout(() => {
+      if (subAgentStatusCallbacks.has(requestId)) {
+        subAgentStatusCallbacks.delete(requestId);
+        resolve('Sub-agent status request timed out.');
+      }
+    }, 10_000);
+    gateway!.sendSubAgentStatusRequest(connector.connectorId, session.project_id, requestId);
   });
 }
 

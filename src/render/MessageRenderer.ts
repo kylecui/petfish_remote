@@ -40,6 +40,8 @@ export class MessageRenderer {
       '  /pf list — List available projects',
       '  /pf where — Show current binding',
       '  /pf sessions — List opencode sessions',
+      '  /pf agents — Show current sub-agent status',
+      '  /pf subagents <silent|summary|verbose> — Set sub-agent visibility',
       '  /pf status — Show task status',
       '',
     ];

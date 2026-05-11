@@ -19,6 +19,8 @@ export type SupportedCommandName =
   | 'sessions'
   | 'switch'
   | 'model'
+  | 'agents'
+  | 'subagents'
   | 'audit'
   | 'users'
   | 'role';
@@ -50,6 +52,8 @@ const supportedCommands: ReadonlySet<SupportedCommandName> = new Set<SupportedCo
   'sessions',
   'switch',
   'model',
+  'agents',
+  'subagents',
   'audit',
   'users',
   'role',
