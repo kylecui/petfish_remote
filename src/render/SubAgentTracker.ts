@@ -45,16 +45,17 @@ export class SubAgentTracker {
     children.add(childSessionId);
   }
 
-  markCompleted(childSessionId: string): void {
+  markCompleted(childSessionId: string): SubAgentRecord | undefined {
     const record = this.agents.get(childSessionId);
-    if (!record || record.status !== 'running') return;
+    if (!record || record.status !== 'running') return undefined;
     record.status = 'completed';
     record.completedAt = Date.now();
+    return record;
   }
 
-  markFailed(childSessionId: string, error: string): void {
+  markFailed(childSessionId: string, error: string): SubAgentRecord | undefined {
     const record = this.agents.get(childSessionId);
-    if (!record || record.status !== 'running') return;
+    if (!record || record.status !== 'running') return undefined;
     record.status = 'failed';
     record.completedAt = Date.now();
     record.error = error;
@@ -63,13 +64,15 @@ export class SubAgentTracker {
       this.errorCount++;
       this.onError?.(`⚠️ Sub-agent failed: ${record.agentName} — ${error}`);
     }
+    return record;
   }
 
-  markCancelled(childSessionId: string): void {
+  markCancelled(childSessionId: string): SubAgentRecord | undefined {
     const record = this.agents.get(childSessionId);
-    if (!record || record.status !== 'running') return;
+    if (!record || record.status !== 'running') return undefined;
     record.status = 'cancelled';
     record.completedAt = Date.now();
+    return record;
   }
 
   getSummary(): string | undefined {

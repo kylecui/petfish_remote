@@ -11,10 +11,12 @@ import type {
   FailCallback,
   QuestionCallback,
   PermissionCallback,
+  PromptOptions,
 } from './AgentBridge.js';
 import { createClient, type OpencodeClient } from './OpencodeClient.js';
 import { SubAgentTracker } from '../../render/SubAgentTracker.js';
 import type { ModelInfo } from '../../protocol/connectorProtocol.js';
+import type { SubAgentVerbosity } from '../../types.js';
 
 const execAsync = promisify(exec);
 
@@ -34,6 +36,7 @@ interface PendingPrompt {
   stdout: string;
   sentTextLengths: Map<string, number>;
   settled: boolean;
+  subAgentVerbosity: SubAgentVerbosity;
 }
 
 export class OpenCodeBridge implements AgentBridge {
@@ -44,7 +47,7 @@ export class OpenCodeBridge implements AgentBridge {
   private client: OpencodeClient | undefined;
   private readonly pending = new Map<string, PendingPrompt>();
   private readonly messageToTask = new Map<string, string>();
-  private readonly localQueue: Array<{ taskId: string; instruction: string; onOutput: OutputCallback; onComplete: CompleteCallback; onFail: FailCallback }> = [];
+  private readonly localQueue: Array<{ taskId: string; instruction: string; onOutput: OutputCallback; onComplete: CompleteCallback; onFail: FailCallback; options?: PromptOptions }> = [];
   private sseRequest: http.ClientRequest | undefined;
   private sseReconnectTimer: NodeJS.Timeout | undefined;
   private idleDrainTimer: NodeJS.Timeout | undefined;
@@ -179,8 +182,8 @@ export class OpenCodeBridge implements AgentBridge {
     return true;
   }
 
-  public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): boolean {
-    this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail });
+  public prompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback, options?: PromptOptions): boolean {
+    this.localQueue.push({ taskId, instruction, onOutput, onComplete, onFail, options });
 
     if (!this.sessionId || !this.opencodePort || !this.client) {
       void this.rediscover().then((ok) => {
@@ -233,14 +236,15 @@ export class OpenCodeBridge implements AgentBridge {
 
     const next = this.localQueue.shift()!;
     console.log(`[OpenCodeBridge] Confirmed idle, injecting taskId=${next.taskId} (${this.localQueue.length} remaining)`);
-    this.injectPrompt(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail);
+    this.injectPrompt(next.taskId, next.instruction, next.onOutput, next.onComplete, next.onFail, next.options);
   }
 
   private isSessionBusy(): boolean {
     return this.pending.size > 0 || this.sessionBusy;
   }
 
-  private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback): void {
+  private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback, options?: PromptOptions): void {
+    const subAgentVerbosity = options?.subAgentVerbosity ?? 'summary';
 
     const entry: PendingPrompt = {
       taskId,
@@ -253,13 +257,16 @@ export class OpenCodeBridge implements AgentBridge {
       stdout: '',
       sentTextLengths: new Map(),
       settled: false,
+      subAgentVerbosity,
     };
 
     this.pending.set(taskId, entry);
     this.pendingCorrelation = taskId;
     this.subAgentTracker.reset();
     this.subAgentTracker.setErrorCallback((text) => {
-      onOutput(taskId, 'stdout', '\n' + text + '\n');
+      if (subAgentVerbosity !== 'silent') {
+        onOutput(taskId, 'stdout', '\n' + text + '\n');
+      }
     });
 
     const waitForCorrelation = (): Promise<boolean> => {
@@ -641,6 +648,12 @@ export class OpenCodeBridge implements AgentBridge {
     if (info.parentID !== this.sessionId) return;
     const agentName = info.agent ?? 'unknown';
     this.subAgentTracker.register(info.id, info.parentID, agentName);
+    if (this.pending.size === 1) {
+      const [, entry] = [...this.pending.entries()][0];
+      if (!entry.settled && entry.subAgentVerbosity === 'verbose') {
+        entry.onOutput(entry.taskId, 'stdout', `\n🔧 ▶ ${agentName} started\n`);
+      }
+    }
     console.log(`[OpenCodeBridge] sub-agent registered: ${agentName} session=${info.id}`);
   }
 
@@ -649,7 +662,14 @@ export class OpenCodeBridge implements AgentBridge {
     const sessionID = props['sessionID'] as string | undefined;
 
     if (sessionID && sessionID !== this.sessionId) {
-      this.subAgentTracker.markCompleted(sessionID);
+      const record = this.subAgentTracker.markCompleted(sessionID);
+      if (record && this.pending.size === 1) {
+        const [, entry] = [...this.pending.entries()][0];
+        if (!entry.settled && entry.subAgentVerbosity === 'verbose') {
+          const duration = record.completedAt ? `${Math.round((record.completedAt - record.startedAt) / 1000)}s` : '0s';
+          entry.onOutput(entry.taskId, 'stdout', `\n🔧 ✅ ${record.agentName} completed (${duration})\n`);
+        }
+      }
       return;
     }
 
@@ -666,7 +686,7 @@ export class OpenCodeBridge implements AgentBridge {
             if (errorMsg) {
               entry.onFail(taskId, errorMsg);
             } else {
-              if (summary) entry.onOutput(taskId, 'stdout', '\n' + summary);
+              if (summary && entry.subAgentVerbosity === 'summary') entry.onOutput(taskId, 'stdout', '\n' + summary);
               const files = await this.fetchFileChanges();
               entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
             }
@@ -674,7 +694,7 @@ export class OpenCodeBridge implements AgentBridge {
           continue;
         }
         void (async () => {
-          if (summary) entry.onOutput(taskId, 'stdout', '\n' + summary);
+          if (summary && entry.subAgentVerbosity === 'summary') entry.onOutput(taskId, 'stdout', '\n' + summary);
           const files = await this.fetchFileChanges();
           entry.onComplete(taskId, 0, entry.stdout, '', entry.startedAt, new Date().toISOString(), files);
         })();
