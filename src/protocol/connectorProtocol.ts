@@ -209,6 +209,47 @@ export const sessionSwitchPayloadSchema = z.object({
   sessionId: z.string(),
 });
 
+export const modelOverridePayloadSchema = z.object({
+  projectId: z.string(),
+  model: z
+    .object({
+      providerID: z.string(),
+      modelID: z.string(),
+    })
+    .nullable(),
+});
+
+export type ModelOverridePayload = z.infer<typeof modelOverridePayloadSchema>;
+
+export const modelListRequestPayloadSchema = z.object({
+  projectId: z.string(),
+  requestId: z.string(),
+});
+
+export type ModelListRequestPayload = z.infer<typeof modelListRequestPayloadSchema>;
+
+export const modelInfoSchema = z.object({
+  providerID: z.string(),
+  providerName: z.string(),
+  modelID: z.string(),
+  modelName: z.string(),
+});
+
+export type ModelInfo = z.infer<typeof modelInfoSchema>;
+
+export const modelListResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  models: z.array(modelInfoSchema),
+  current: z
+    .object({
+      providerID: z.string(),
+      modelID: z.string(),
+    })
+    .nullable(),
+});
+
+export type ModelListResponsePayload = z.infer<typeof modelListResponsePayloadSchema>;
+
 export type SessionSwitchPayload = z.infer<typeof sessionSwitchPayloadSchema>;
 
 // ---------------------------------------------------------------------------
@@ -234,6 +275,9 @@ export const MSG = {
   SESSION_LIST: 'session.list',
   SESSION_LIST_RESPONSE: 'session.list.response',
   SESSION_SWITCH: 'session.switch',
+  MODEL_OVERRIDE: 'model.override',
+  MODEL_LIST: 'model.list',
+  MODEL_LIST_RESPONSE: 'model.list.response',
   RESUME_RUNNING: 'resume.running',
   UPGRADE_AVAILABLE: 'upgrade.available',
   ERROR: 'error',
@@ -264,6 +308,9 @@ export const payloadSchemas: Record<string, z.ZodType> = {
   [MSG.SESSION_LIST]: sessionListRequestPayloadSchema,
   [MSG.SESSION_LIST_RESPONSE]: sessionListResponsePayloadSchema,
   [MSG.SESSION_SWITCH]: sessionSwitchPayloadSchema,
+  [MSG.MODEL_OVERRIDE]: modelOverridePayloadSchema,
+  [MSG.MODEL_LIST]: modelListRequestPayloadSchema,
+  [MSG.MODEL_LIST_RESPONSE]: modelListResponsePayloadSchema,
   [MSG.ERROR]: errorPayloadSchema,
 };
 

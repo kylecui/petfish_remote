@@ -1,4 +1,4 @@
-import type { TaskQuestionPayload, TaskPermissionPayload } from '../../protocol/connectorProtocol.js';
+import type { TaskQuestionPayload, TaskPermissionPayload, ModelInfo } from '../../protocol/connectorProtocol.js';
 
 export type OutputCallback = (taskId: string, stream: 'stdout' | 'stderr', chunk: string) => void;
 export interface FileChange {
@@ -46,6 +46,10 @@ export interface AgentBridge {
   setPermissionCallback(cb: PermissionCallback): void;
   answerQuestion(questionId: string, answers: string[][]): void;
   answerPermission(permissionId: string, allowed: boolean): void;
+
+  setModelOverride?(model: { providerID: string; modelID: string } | null): void;
+  getAvailableModels?(): Promise<{ models: ModelInfo[]; current: { providerID: string; modelID: string } | null }>;
+  getModelOverride?(): { providerID: string; modelID: string } | undefined;
 }
 
 export interface BridgeConfig {
