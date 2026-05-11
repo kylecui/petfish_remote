@@ -2,6 +2,8 @@ export type Platform = 'telegram' | 'slack' | 'feishu' | 'wecom' | 'discord' | '
 
 export type ExecutionMode = 'read_only' | 'suggest' | 'edit_guarded' | 'execute_guarded' | 'admin';
 
+export type SubAgentVerbosity = 'silent' | 'summary' | 'verbose';
+
 export type UserRole = 'admin' | 'operator' | 'viewer';
 
 export const DEFAULT_MODES_BY_ROLE: Record<UserRole, ExecutionMode[]> = {
@@ -22,6 +24,8 @@ export const COMMAND_MIN_ROLE: Record<string, UserRole> = {
   where: 'viewer',
   status: 'viewer',
   sessions: 'viewer',
+  agents: 'viewer',
+  subagents: 'viewer',
   log: 'viewer',
   diff: 'viewer',
   ask: 'operator',
@@ -149,6 +153,7 @@ export interface SessionState {
   opencode_session_id?: string;
   active_task_id?: string;
   mode: ExecutionMode;
+  sub_agent_verbosity: SubAgentVerbosity;
   updated_at: string;
 }
 
