@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4k Compaction bug mitigations — P4k-a done, P4k-b/c remaining. P4j Phase 2 complete.
+> Current stage: P4k Compaction bug mitigations — all items complete (P4k-a/b/c done, P4k-d cancelled). P4j Phase 2 complete.
 
 ---
 
@@ -396,20 +396,26 @@
 - ✅ `npm test` — 95/95 tests passed
 - ✅ Deployed to production
 
-### P4k-b: Session depth warning at ~250 messages ⬜ P1
+### P4k-b: Session depth warning at ~250 messages ✅ DONE
 
-- [ ] Track assistant message count via `message.updated` SSE events in `handleMessageUpdated()`
-- [ ] At ~250 messages, inject one-time warning into next output suggesting fresh session for Claude models
-- [ ] Reset counter on session switch/new
+**完成日期**: 2026-05-11
 
-**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L486-499 (`handleMessageUpdated`) + L590-630 (`handleSessionIdle`)
+- [x] Track assistant message count via `message.updated` SSE events in `handleMessageUpdated()`
+- [x] At ~250 messages, inject one-time warning into next output suggesting `/pf model` or `/pf new`
+- [x] Reset counter on session switch/new
+- [x] `depthWarned` flag prevents duplicate warnings per session
 
-### P4k-c: Track `session.compacted` SSE events ⬜ P1
+**Code location**: `src/connector/bridges/OpenCodeBridge.ts` — `messageCount`/`depthWarned` fields (L63-64), increment + trigger (L562-567), `emitDepthWarning()` (L756-765), reset on new/switch (L381-382, L436-437)
 
-- [ ] Add handler for `session.compacted` event in SSE dispatch
-- [ ] Log timestamp, session ID, and message count at compaction time
+### P4k-c: Track `session.compacted` SSE events ✅ DONE
 
-**Code location**: `src/connector/bridges/OpenCodeBridge.ts` L470-483 (SSE event dispatch)
+**完成日期**: 2026-05-11
+
+- [x] Add handler for `session.compacted` event in SSE dispatch (L539-541)
+- [x] Log session ID at compaction time
+- [x] Warn active tasks about potential compaction issues, suggest `/pf model`
+
+**Code location**: `src/connector/bridges/OpenCodeBridge.ts` — SSE dispatch (L539-541), `handleSessionCompacted()` (L743-754)
 
 ### ~~P4k-d: Auto-recovery on compaction failure~~ ❌ CANCELLED
 
@@ -438,8 +444,6 @@ Reason: User rejected — switching model is a better recovery than blindly crea
 
 ## Future (v0.5+)
 
-- [ ] P4k-b: Session depth warning at ~250 messages
-- [ ] P4k-c: Track `session.compacted` SSE events
 - [ ] P4j Phase 2: Server-side render policy integration — use `formatSubAgentSummary()` / `formatSubAgentError()` (already implemented in all 5 policies) for platform-native formatting
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 
@@ -481,3 +485,5 @@ Reason: User rejected — switching model is a better recovery than blindly crea
 - [x] P4k-a: Compaction error detection + `/pf model` command — error keyword detection, model list/switch/clear via SDK, WS round-trip plumbing, depth warning updated
 - [x] P4j Phase 2: `/pf agents` command — WS round-trip from server to connector for real-time sub-agent status query
 - [x] P4j Phase 2: `/pf subagents` setting — per-session persistent verbosity (`silent`/`summary`/`verbose`), threaded through full dispatch chain, verbose lifecycle events
+- [x] P4k-b: Session depth warning at ~250 messages — `messageCount`/`depthWarned` tracking, one-time warning, reset on session switch/new
+- [x] P4k-c: Track `session.compacted` SSE events — handler dispatches compaction warning to active tasks
