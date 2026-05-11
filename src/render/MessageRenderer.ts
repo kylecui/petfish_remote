@@ -52,6 +52,7 @@ export class MessageRenderer {
         '  /pf new — Start a new session',
         '  /pf use <project> — Switch project',
         '  /pf switch <slug> — Switch session',
+        '  /pf model [provider/model|clear] — List or change model',
         '  /pf stop — Cancel running task',
         '',
         '*🛠️ Development*',

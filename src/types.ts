@@ -30,6 +30,7 @@ export const COMMAND_MIN_ROLE: Record<string, UserRole> = {
   use: 'operator',
   new: 'operator',
   switch: 'operator',
+  model: 'operator',
   pr: 'operator',
   commit: 'operator',
   approve: 'operator',

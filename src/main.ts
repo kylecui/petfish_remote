@@ -31,7 +31,7 @@ import { ConnectorAuth } from './server/ConnectorAuth.js';
 import { ConnectorGateway } from './server/ConnectorGateway.js';
 import { RegistrationService } from './server/RegistrationService.js';
 import { createEnvelope, MSG } from './protocol/connectorProtocol.js';
-import type { TaskQuestionPayload, TaskPermissionPayload } from './protocol/connectorProtocol.js';
+import type { TaskQuestionPayload, TaskPermissionPayload, ModelInfo } from './protocol/connectorProtocol.js';
 import { Storage } from './storage/sqlite.js';
 import type { ChatEvent, ChatResponse, ExecutionMode, Platform, UserRole } from './types.js';
 import { DEFAULT_MODES_BY_ROLE, COMMAND_MIN_ROLE, hasMinimumRole } from './types.js';
@@ -74,6 +74,7 @@ const connectorIdToChatId = new Map<string, { platform: Platform; chatId: string
 const questionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const permissionIdToContext = new Map<string, { connectorId: string; taskId: string }>();
 const sessionListCallbacks = new Map<string, { resolve: (sessions: SessionListEntry[]) => void }>();
+const modelListCallbacks = new Map<string, { resolve: (result: { models: ModelInfo[]; current: { providerID: string; modelID: string } | null }) => void }>();
 
 function resolveChatId(taskId: string, connectorId: string): { platform: Platform; chatId: string } | undefined {
   const fromTask = taskIdToChatId.get(taskId);
@@ -248,6 +249,14 @@ if (config.gateway.enabled) {
     if (cb) {
       sessionListCallbacks.delete(payload.requestId);
       cb.resolve(payload.sessions);
+    }
+  });
+
+  gateway.on('model:list', (_connectorId: string, payload: { requestId: string; models: ModelInfo[]; current: { providerID: string; modelID: string } | null }) => {
+    const cb = modelListCallbacks.get(payload.requestId);
+    if (cb) {
+      modelListCallbacks.delete(payload.requestId);
+      cb.resolve({ models: payload.models, current: payload.current });
     }
   });
 
@@ -814,6 +823,48 @@ async function handleChatEvent(event: ChatEvent): Promise<void> {
       responseText = `🔄 Switching to session ${switchTarget}. Next message will use the new session.`;
       break;
     }
+    case 'model': {
+      const session = sessionManager.getSession(event.platform, event.chat_id);
+      if (!session) {
+        responseText = 'No project bound. Use /pf use <project> first.';
+        break;
+      }
+      if (!gateway) {
+        responseText = 'Gateway not enabled.';
+        break;
+      }
+      const modelConnector = gateway.registry.findByProject(session.project_id);
+      if (!modelConnector) {
+        responseText = 'Connector not connected. Cannot manage model override.';
+        break;
+      }
+
+      const modelTarget = parsed.args[0]?.trim();
+      if (!modelTarget) {
+        responseText = renderModelList(await fetchModels(event.platform, event.chat_id));
+        break;
+      }
+
+      if (modelTarget === 'clear') {
+        gateway.sendModelOverride(modelConnector.connectorId, session.project_id, null);
+        auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'model_override_cleared', payload: JSON.stringify({ project_id: session.project_id }) });
+        responseText = '🧹 Model override cleared. Future prompts will use the session default model.';
+        break;
+      }
+
+      const slashIndex = modelTarget.indexOf('/');
+      if (slashIndex <= 0 || slashIndex === modelTarget.length - 1) {
+        responseText = 'Usage: /pf model <provider/model>\n       /pf model clear';
+        break;
+      }
+
+      const providerID = modelTarget.slice(0, slashIndex);
+      const modelID = modelTarget.slice(slashIndex + 1);
+      gateway.sendModelOverride(modelConnector.connectorId, session.project_id, { providerID, modelID });
+      auditLogger.log({ task_id: undefined, user_id: userId, event_type: 'model_override_set', payload: JSON.stringify({ project_id: session.project_id, providerID, modelID }) });
+      responseText = `🤖 Model override set to ${providerID}/${modelID}. Future prompts will use this model.`;
+      break;
+    }
     case 'audit': {
       const auditTarget = parsed.args[0];
       const logs = auditTarget
@@ -946,6 +997,40 @@ function fetchSessions(platform: Platform, chatId: string): Promise<SessionListE
     }, 10_000);
     gateway!.sendSessionListRequest(connector.connectorId, session.project_id, requestId);
   });
+}
+
+function fetchModels(platform: Platform, chatId: string): Promise<{ models: ModelInfo[]; current: { providerID: string; modelID: string } | null }> {
+  const session = sessionManager.getSession(platform, chatId);
+  if (!session || !gateway) return Promise.resolve({ models: [], current: null });
+  const connector = gateway.registry.findByProject(session.project_id);
+  if (!connector) return Promise.resolve({ models: [], current: null });
+  const requestId = `ml-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise<{ models: ModelInfo[]; current: { providerID: string; modelID: string } | null }>((resolve) => {
+    modelListCallbacks.set(requestId, { resolve });
+    setTimeout(() => {
+      if (modelListCallbacks.has(requestId)) {
+        modelListCallbacks.delete(requestId);
+        resolve({ models: [], current: null });
+      }
+    }, 10_000);
+    gateway!.sendModelListRequest(connector.connectorId, session.project_id, requestId);
+  });
+}
+
+function renderModelList(result: { models: ModelInfo[]; current: { providerID: string; modelID: string } | null }): string {
+  if (result.models.length === 0) {
+    return 'No connected tool-capable models found (or request timed out).';
+  }
+
+  const current = result.current ? `${result.current.providerID}/${result.current.modelID}` : 'default session model';
+  const lines = [`🤖 Available models (${result.models.length})`, `Current override: ${current}`, ''];
+  for (const model of result.models) {
+    const label = `${model.providerID}/${model.modelID}`;
+    const active = result.current && result.current.providerID === model.providerID && result.current.modelID === model.modelID;
+    lines.push(`${active ? '✅' : '•'} ${label} — ${model.modelName} [${model.providerName}]`);
+  }
+  lines.push('', 'Use /pf model <provider/model> to switch, or /pf model clear to remove the override.');
+  return lines.join('\n');
 }
 
 const adapterDeps: AdapterDeps = {
