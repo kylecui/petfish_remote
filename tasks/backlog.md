@@ -2,7 +2,7 @@
 
 > Updated: 2026-05-11
 > Reprioritized based on: `research/06_outputs/root-cause-and-redesign.md`
-> Current stage: P4g Multi-user permissions complete. Next: P4h opencode plugin.
+> Current stage: P4j Sub-agent attribution Phase 1 MVP complete. Phase 2 items in backlog.
 
 ---
 
@@ -374,7 +374,9 @@
 
 ## Future (v0.5+)
 
-- [ ] Child/subagent session attribution under root session — no server/IM attribution path surfaced today
+- [ ] P4j Phase 2: `/pf agents` command — requires WS request/response from server to connector for real-time sub-agent status
+- [ ] P4j Phase 2: `/pf subagents` setting — user-configurable verbosity (`silent`/`summary`/`verbose`) for sub-agent summary injection
+- [ ] P4j Phase 2: Server-side render policy integration — use `formatSubAgentSummary()` / `formatSubAgentError()` (already implemented in all 5 policies) for platform-native formatting
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 
 ---
@@ -408,3 +410,5 @@
 - [x] P4f: Web console — `WebAdapter` on `/ws/web`, dark-themed browser UI, API key auth, noServer WSS routing, nginx proxy, full E2E verified
 - [x] P4g: Multi-user permissions & audit trail — `UserRole` types, auto-registration, role-based command/mode access control, 9-event audit trail, `/pf audit` + `/pf users` + `/pf role` admin commands
 - [x] P4h: opencode plugin — self-contained Bun plugin with tool interception, permission auto-handling, context injection, custom `petfish_status` tool, connector-side installer
+- [x] P4i: Menu redesign — grouped layout (Project&Session / Task Control / Development / Admin), role-based admin row visibility, `getUserRole` in AdapterDeps, all 5 adapters + MessageRenderer updated — commit `c653a34`
+- [x] P4j: Sub-agent attribution Phase 1 MVP — `SubAgentTracker` class, SSE `session.created` interception, child session idle/error routing, summary injection on parent completion, error forwarding via callback, render policy extensions (5 adapters), 24 unit tests
