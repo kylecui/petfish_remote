@@ -6,6 +6,7 @@ import type {
   FailCallback,
   QuestionCallback,
   PermissionCallback,
+  PromptOptions,
 } from './AgentBridge.js';
 import { JsonRpcTransport } from './JsonRpcTransport.js';
 
@@ -108,7 +109,9 @@ export class CodexBridge implements AgentBridge {
     onOutput: OutputCallback,
     onComplete: CompleteCallback,
     onFail: FailCallback,
+    options?: PromptOptions,
   ): boolean {
+    void options;
     if (!this.transport?.isAlive || !this.threadId) {
       onFail(taskId, 'Codex app-server not initialized');
       return false;

@@ -6,6 +6,7 @@ import type {
   FailCallback,
   QuestionCallback,
   PermissionCallback,
+  PromptOptions,
 } from './AgentBridge.js';
 import { JsonRpcTransport } from './JsonRpcTransport.js';
 
@@ -112,7 +113,9 @@ export class GeminiBridge implements AgentBridge {
     onOutput: OutputCallback,
     onComplete: CompleteCallback,
     onFail: FailCallback,
+    options?: PromptOptions,
   ): boolean {
+    void options;
     if (!this.transport?.isAlive || !this.sessionId) {
       onFail(taskId, 'Gemini ACP session not initialized');
       return false;
