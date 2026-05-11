@@ -1,6 +1,6 @@
 ---
 name: deployment-executor
-description: 按部署计划执行上线、升级或重部署，优先使用repo已有的Docker/compose/systemd/k8s方式，并在执行前建立回滚点、记录路径与版本、保留变更摘要。Use when you already know how the service should be deployed and need to execute the rollout safely.
+description: 按已确认部署计划执行上线/升级/重部署：优先repo现有Docker/compose/systemd/k8s信号，先Plan→Validate→Execute，建立回滚点并记录版本/路径/命令/变更摘要。Trigger for执行发布、切换release目录、配置注入、迁移与启动；用于部署方式已明确且需要安全落地时。
 compatibility: Requires deployment access to the target host. Common tools: ssh, rsync, git, docker or systemctl. Python 3.11+ and uv recommended for helper scripts.
 license: Internal use
 ---
@@ -111,7 +111,11 @@ license: Internal use
 
 ## 何时读取参考文件
 
--需要决定采用“发布目录 + current软链”时，读取：
+-需要决定采用"发布目录 + current软链"时，读取：
   `references/release-layout.md`
--需要区分“就地升级”和“新发布切换”时，读取：
+-需要区分"就地升级"和"新发布切换"时，读取：
   `references/upgrade-strategy.md`
+-部署私有仓库、目标服务器无GitHub凭据时，读取：
+  `references/private-repo-access.md`
+-多服务共享主机、存在本地补丁或执行git pull升级时，读取：
+  `references/local-patch-management.md`

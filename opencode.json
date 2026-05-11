@@ -3,7 +3,9 @@
   "permission": {
     "skill": {
       "petfish-style-rewriter": "allow",
-      "fish-trail": "allow"
+      "fish-trail": "allow",
+      "ppt-reader": "allow",
+      "ppt-writer": "allow"
     }
   },
   "mcp": {

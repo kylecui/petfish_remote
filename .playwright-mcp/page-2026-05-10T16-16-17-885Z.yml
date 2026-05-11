@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "><(((^> PetFish" [level=2] [ref=e4]
+    - paragraph [ref=e5]: Enter your Web API key to connect
+    - textbox "API Key" [ref=e6]
+    - button "Connect" [ref=e7] [cursor=pointer]
+  - generic [ref=e8]:
+    - banner [ref=e9]:
+      - generic [ref=e10]: "><(((^> PetFish Remote"
+      - generic [ref=e13]: disconnected
+    - generic [ref=e15]:
+      - textbox "Send a message…" [disabled] [ref=e16]
+      - button "Send" [disabled] [ref=e17]
