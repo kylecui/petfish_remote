@@ -259,13 +259,15 @@ export class WeComAdapter extends BaseIMAdapter {
     const fullUserId = `wecom:${userId}`;
     const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
 
+    const docsBase = serverUrl.replace(/\/$/, '');
     let tokenText: string;
     if (this.deps?.generateRegistrationToken) {
       const token = this.deps.generateRegistrationToken(fullUserId);
       tokenText =
-        `📖 Install guide: ${serverUrl}/docs/install\n\n` +
-        `🔑 Your token:\n\`${token}\`\n\n` +
-        'Token expires in 5 minutes. Supports macOS / Linux / WSL / Windows.';
+        `📋 Copy one of these to your AI coding assistant:\n\n` +
+        `🆕 New install:\nInstall PetFish Remote connector by following ${docsBase}/docs/agent-install — use setup token: ${token}\n\n` +
+        `⬆️ Already installed? Upgrade:\nUpgrade PetFish Remote connector by following ${docsBase}/docs/agent-upgrade\n\n` +
+        'Token expires in 5 minutes.';
     } else {
       tokenText = 'Use the control panel to get started.';
     }

@@ -110,6 +110,11 @@ export class ConnectorGateway extends EventEmitter {
       return;
     }
 
+    if (req.method === 'GET' && req.url?.startsWith('/docs/')) {
+      this.handleDocsRequest(req, res);
+      return;
+    }
+
     if (req.url === '/api/version') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ version: SERVER_VERSION }));
@@ -321,6 +326,31 @@ export class ConnectorGateway extends EventEmitter {
       'Cache-Control': 'no-cache',
     });
     res.end(script);
+  }
+
+  private static readonly ALLOWED_DOCS = new Set(['agent-install', 'agent-upgrade']);
+
+  private handleDocsRequest(_req: IncomingMessage, res: ServerResponse): void {
+    const slug = _req.url!.slice('/docs/'.length).split('?')[0].split('#')[0];
+    if (!ConnectorGateway.ALLOWED_DOCS.has(slug)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+      return;
+    }
+
+    const filePath = resolve(__dirname, `../../docs/${slug}.md`);
+    try {
+      const body = readFileSync(filePath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Cache-Control': 'no-cache',
+      });
+      res.end(body);
+    } catch {
+      const fallbackUrl = `https://raw.githubusercontent.com/kylecui/petfish_remote/dev/docs/${slug}.md`;
+      res.writeHead(302, { Location: fallbackUrl });
+      res.end();
+    }
   }
 
   public start(): Promise<void> {

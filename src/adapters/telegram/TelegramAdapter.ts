@@ -36,13 +36,15 @@ export class TelegramAdapter extends BaseIMAdapter {
     this.bot.command('start', async (ctx) => {
       const userId = `telegram:${ctx.from?.id}`;
       const serverUrl = process.env.PETFISH_SERVER_URL ?? 'https://remote.petfish.ai';
+      const docsBase = serverUrl.replace(/\/$/, '');
       const tokenSection = this.deps?.generateRegistrationToken
         ? (() => {
             const token = this.deps.generateRegistrationToken(userId);
             return (
-              `\n\n📖 *Install guide:* ${serverUrl}/docs/install\n\n` +
-              `🔑 *Your token:*\n\`\`\`\n${token}\n\`\`\`\n` +
-              '_Token expires in 5 minutes. Supports macOS / Linux / WSL / Windows._'
+              `\n\n📋 *Copy one of these to your AI coding assistant:*\n\n` +
+              `🆕 *New install:*\nInstall PetFish Remote connector by following ${docsBase}/docs/agent-install — use setup token: \`${token}\`\n\n` +
+              `⬆️ *Already installed? Upgrade:*\nUpgrade PetFish Remote connector by following ${docsBase}/docs/agent-upgrade\n\n` +
+              `_Token expires in 5 minutes._`
             );
           })()
         : '\n\nUse /pf to get started.';
