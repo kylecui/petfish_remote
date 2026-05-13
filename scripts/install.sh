@@ -29,7 +29,7 @@ set -euo pipefail
 PETFISH_SERVER_URL="${PETFISH_SERVER_URL:-__PETFISH_SERVER_URL__}"
 PETFISH_REPO="${PETFISH_REPO:-https://github.com/kylecui/petfish_remote.git}"
 PETFISH_REMOTE_DIR="${PETFISH_REMOTE_DIR:-$HOME/.petfish/remote}"
-MIN_NODE_VERSION=18
+MIN_NODE_VERSION=20
 
 # --- Colors (if terminal supports them) ---
 if [ -t 1 ]; then
