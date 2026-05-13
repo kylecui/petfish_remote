@@ -738,6 +738,12 @@ export class OpenCodeBridge implements AgentBridge {
         this.settle(taskId, errorMsg);
       }
     }
+
+    // Reset busy flag so queued tasks can drain.
+    // session.idle may never fire after certain errors (e.g. MessageAbortedError),
+    // leaving sessionBusy=true and blocking the queue permanently.
+    this.sessionBusy = false;
+    this.scheduleIdleDrain();
   }
 
   private handleSessionCompacted(props: Record<string, unknown> | undefined): void {
