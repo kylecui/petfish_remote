@@ -1,31 +1,34 @@
 # PetFish Remote 胖鱼遥控器
 
-> Control your opencode AI agent from Telegram — anywhere, anytime.
+> Control your opencode AI agent from anywhere — Telegram, Slack, Feishu, WeCom, or Web.
 >
-> 用 Telegram 遥控你的 opencode AI 编程助手。
+> 从任何平台遥控你的 opencode AI 编程助手。
 
 [![Beta](https://img.shields.io/badge/status-beta-blue)](https://remote.petfish.ai)
-[![Node](https://img.shields.io/badge/node-%E2%89%A518-green)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20%2B%20Proprietary-blue)](./LICENSE)
 
 ## Architecture 架构
 
 ```
-┌─────────────┐        ┌─────────────────┐        ┌─────────────────────┐
-│  Telegram   │◄──────►│   Bot Server    │◄──WSS──►│   Connector (你的机器) │
-│  (You/你)   │  Bot API│ remote.petfish.ai│        │                     │
-└─────────────┘        └─────────────────┘        │  ┌───────────────┐  │
-                                                   │  │ Session Bridge │  │
-                                                   │  │  ↕ opencode   │  │
-                                                   │  └───────────────┘  │
-                                                   └─────────────────────┘
+┌─────────────┐
+│  Telegram   │◄──┐
+├─────────────┤   │
+│   Slack     │◄──┤     ┌─────────────────┐        ┌─────────────────────┐
+├─────────────┤   ├────►│   Bot Server    │◄──WSS──►│  Connector (你的机器)  │
+│   Feishu    │◄──┤     │ remote.petfish.ai│        │                     │
+├─────────────┤   │     └─────────────────┘        │  ┌───────────────┐  │
+│   WeCom     │◄──┤                                │  │ Session Bridge │  │
+├─────────────┤   │                                │  │  ↕ opencode   │  │
+│   Web UI    │◄──┘                                │  └───────────────┘  │
+└─────────────┘                                    └─────────────────────┘
 ```
 
 **Three components / 三大组件:**
 
 | Component | Role | Runs on |
 |-----------|------|---------|
-| **Bot Server** | Telegram bot + connector registry | Cloud (remote.petfish.ai or self-hosted) |
+| **Bot Server** | Multi-platform bot + connector registry | Cloud (remote.petfish.ai or self-hosted) |
 | **Connector** | Maintains WebSocket to server, manages session bridges | Your dev machine |
 | **Session Bridge** | Injects prompts into a running opencode session, collects output | Per opencode process |
 
@@ -49,20 +52,31 @@ Done. Your connector is running. Send any message in Telegram to start controlli
 
 | Action | How |
 |--------|-----|
-| Send instruction | Just type in Telegram (default = ask mode) |
+| Send instruction | Just type in chat (default = ask mode) |
 | Switch project | `/pf use <project-id>` |
-| Show menu | `/pf` (InlineKeyboard) |
+| Show menu | `/pf` (InlineKeyboard / Block Kit / Card) |
 | New session | `/pf new` |
 | List projects | `/pf list` |
+| Switch session | `/pf sessions` → `/pf switch <n>` |
+| Override model | `/pf model <provider/model>` |
+| Sub-agent control | `/pf agents` / `/pf subagents <silent\|summary\|verbose>` |
+| Admin commands | `/pf users` / `/pf audit` / `/pf role` |
 
 ## Features 特性
 
+- **Multi-Platform** — Telegram, Slack, Feishu (Lark), WeCom, and Web console
 - **Default Ask Mode** — Text messages go directly to opencode (no prefix needed)
-- **InlineKeyboard** — `/pf` shows a button menu for common actions
+- **InlineKeyboard / Block Kit / Cards** — `/pf` shows native interactive menus per platform
 - **Multi-Project** — One connector can bridge multiple project workspaces
+- **Session Management** — Create, list, and switch sessions; real-time output with typing indicators
+- **Sub-Agent Attribution** — Track child/sub-agent sessions under the root session, configurable verbosity (`silent`/`summary`/`verbose`)
+- **Model Override** — `/pf model` to switch models mid-session (workaround for compaction bugs)
+- **Multi-User Permissions** — Role-based access control (admin/operator/viewer) with 9-event audit trail
+- **opencode Plugin** — Bun plugin with tool interception, permission auto-handling, and context injection
+- **SSH Runtime** — Execute opencode on remote machines via SSH
+- **Self-Daemonizing Connector** — Supervisor with auto-respawn, exponential backoff, PID management
 - **Auto-Update** — Connector checks server version on start, auto-upgrades if outdated
-- **Session Management** — Create fresh sessions, see output in real-time with typing indicators
-- **Secure** — Token-based auth, encrypted WebSocket, user allowlist
+- **Secure** — Token-based auth, encrypted WebSocket, user allowlist, policy engine
 - **AI Agent Integration** — Add to AGENTS.md for auto-start on every opencode session
 - **One-Liner Install** — `curl | bash` with dynamic server URL injection
 
@@ -73,6 +87,15 @@ Done. Your connector is running. Send any message in Telegram to start controlli
 | Install Guide | — | [Install & Upgrade](./docs/install.md) |
 | Client Guide | [客户端指南](./docs/zh/client-guide.md) | [Client Guide](./docs/en/client-guide.md) |
 | Server Guide | [服务器部署](./docs/zh/server-guide.md) | [Server Guide](./docs/en/server-guide.md) |
+| API Reference | — | [API](./docs/api.md) |
+| Architecture | — | [Architecture](./docs/architecture.md) |
+| Security Model | — | [Security](./docs/security-model.md) |
+| Deployment | — | [Deployment](./docs/deployment.md) |
+| opencode Integration | — | [Integration](./docs/opencode-integration.md) |
+| Agent Setup | — | [Install](./docs/agent-install.md) · [Upgrade](./docs/agent-upgrade.md) |
+| Development | — | [Development Guide](./docs/development.md) · [Contributing](./CONTRIBUTING.md) |
+| Roadmap | — | [Roadmap](./docs/roadmap.md) |
+| Changelog | — | [CHANGELOG](./CHANGELOG.md) |
 | Web | [remote.petfish.ai](https://remote.petfish.ai) | [remote.petfish.ai](https://remote.petfish.ai) |
 
 ## Self-Hosting 自部署
@@ -89,16 +112,25 @@ cd petfish_remote
 npm install
 npm run dev        # Watch mode
 npm run build      # Compile
-npm run test       # 19 tests
+npm run test       # 95 tests across 8 files
 npm run typecheck  # Type check
 ```
 
+See the [Development Guide](./docs/development.md) for project structure, patterns, and configuration.
+
 ## Tech Stack
 
-- TypeScript / Node.js (ESM)
-- grammY (Telegram Bot)
-- WebSocket (ws)
-- YAML + Zod (Config validation)
+- **Language**: TypeScript / Node.js (ESM, strict mode)
+- **Telegram**: grammY
+- **Slack**: @slack/bolt (Socket Mode)
+- **Feishu**: @larksuiteoapi/node-sdk
+- **WeCom**: @wecom/aibot-node-sdk
+- **opencode**: @opencode-ai/sdk
+- **WebSocket**: ws (noServer mode with route-based upgrade)
+- **Storage**: better-sqlite3
+- **Config**: YAML + Zod validation
+- **Testing**: vitest
+- **Web UI**: Single-page dark-themed chat (vanilla HTML/CSS/JS)
 
 ## License
 

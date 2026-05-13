@@ -442,9 +442,36 @@ Reason: User rejected — switching model is a better recovery than blindly crea
 
 ---
 
-## Future (v0.5+)
+## Future (v1.0+)
 
+### Platform & UX
+- [ ] Discord adapter — native Discord integration for servers and direct messages
+- [ ] Mobile app — dedicated companion app for iOS and Android platforms
+- [ ] Voice messages — speech-to-text integration for voice-driven AI control
+- [ ] File/image forwarding — pass attachments from chat directly to the AI agent
+- [ ] Message threading — organize AI reasoning and sub-tasks into IM thread replies
 - [ ] P4j Phase 2: Server-side render policy integration — use `formatSubAgentSummary()` / `formatSubAgentError()` (already implemented in all 5 policies) for platform-native formatting
+
+### Agent Capabilities
+- [ ] Multi-model support — connect to agents beyond opencode (Claude Desktop, Cursor, etc.)
+- [ ] Agent marketplace integration — discover, install, and manage skills directly via chat
+- [ ] Workflow automation/macros — save and trigger multi-step prompt sequences
+
+### Infrastructure
+- [ ] Horizontal scaling — support multiple bot server instances behind a load balancer
+- [ ] Redis/PostgreSQL migration — transition off SQLite for high-availability cloud deployments
+- [ ] Rate limiting — configurable per-user and per-project request throttling
+- [ ] Metrics/observability dashboard — visual admin panel for connector and session health
+
+### Security & Compliance
+- [ ] E2E encryption — encrypt payloads end-to-end between IM client and local connector
+- [ ] SSO/OAuth integration — enterprise single sign-on for Web console and team management
+- [ ] GDPR data export/deletion — self-service privacy tools for data management
+
+### Developer Experience
+- [ ] REST API — programmable endpoints for custom third-party integrations
+- [ ] SDK for custom adapters — toolkit for building community platform connectors
+- [ ] Webhook support — outbound event notifications for task state changes
 - [ ] WSL runtime connector — `WslRuntime` stubbed, similar pattern to SSH
 
 ---

@@ -1,12 +1,12 @@
 # Install & Upgrade — PetFish Remote
 
-> One connector, all your AI coding agents, controlled from Telegram and Feishu.
+> One connector, all your AI coding agents, controlled from Telegram, Slack, Feishu, WeCom, or Web.
 
 ## Prerequisites
 
 | Requirement | Version | Check |
 |-------------|---------|-------|
-| Node.js | ≥ 18 | `node -v` |
+| Node.js | ≥ 20 | `node -v` |
 | git | any | `git --version` |
 | curl (bash) or PowerShell 5+ (Windows) | — | — |
 
@@ -25,7 +25,7 @@ curl -sSL https://remote.petfish.ai/install | bash -s -- <token>
 
 To use a non-default AI agent, add --agent: `curl ... | bash -s -- <token> --agent gemini`
 
-**Get a token:** Send `/start` to the bot on Telegram or Feishu. Tokens expire in 5 minutes.
+**Get a token:** Send `/start` to the bot on any supported platform (Telegram, Slack, Feishu, WeCom, or Web). Tokens expire in 5 minutes.
 
 ### Environment overrides
 
@@ -77,9 +77,9 @@ The script uses `Start-Process` to launch a background daemon that persists afte
 .\scripts\petfish-connect.ps1 logs                # Tail logs
 ```
 
-## Multi-Platform Setup (Telegram + Feishu)
+## Multi-Platform Setup
 
-PetFish Remote supports controlling the same projects from both Telegram and Feishu simultaneously. One connector handles both platforms — no duplicated setup needed.
+PetFish Remote supports controlling the same projects from Telegram, Slack, Feishu, WeCom, and Web simultaneously. One connector handles all platforms — no duplicated setup needed.
 
 ### Adding a Second Platform
 
@@ -127,7 +127,7 @@ PetFish Remote uses two distinct tokens. Understanding them prevents common mist
 
 | Token | Source | Lifetime | Format |
 |-------|--------|----------|--------|
-| **One-time setup token** | `/start` in Telegram or Feishu | 5 minutes | 32-character hex string |
+| **One-time setup token** | `/start` in any supported platform | 5 minutes | 32-character hex string |
 | **Connector token** | Generated during registration | Permanent (until revoked) | Base64url string in `connector.yaml` |
 
 **Important:**
@@ -231,8 +231,8 @@ Remove-Item -Recurse -Force $env:USERPROFILE\.petfish\remote
 
 | Symptom | Fix |
 |---------|-----|
-| `node: command not found` | Install Node.js ≥ 18: https://nodejs.org |
-| Token expired | Send `/start` again in Telegram or Feishu for a fresh token |
+| `node: command not found` | Install Node.js ≥ 20: https://nodejs.org |
+| Token expired | Send `/start` again in your chat platform for a fresh token |
 | Connector won't start | Check `scripts/petfish-connect.sh logs` or `.runtime/connector.log` |
 | Already running | `petfish-connect.sh status` shows PID — stop first, then restart |
 | Windows: "not digitally signed" | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |

@@ -2,13 +2,13 @@
 
 ## 1. 概述
 
-Connector 是运行在本地计算机或开发机上的守护进程。它的作用是主动向 Bot Server 发起 WebSocket 连接，接收来自 Telegram 和飞书的远程指令，并将其转发给本地的 OpenCode 进程，同时将执行结果返回给用户。
+Connector 是运行在本地计算机或开发机上的守护进程。它的作用是主动向 Bot Server 发起 WebSocket 连接，接收来自 Telegram、Slack、飞书、企业微信和 Web 的远程指令，并将其转发给本地的 OpenCode 进程，同时将执行结果返回给用户。
 
 ## 2. 前置要求
 
 在安装 Connector 之前，请确保目标机器已安装以下基础依赖：
 
-- Node.js ≥ 18
+- Node.js ≥ 20
 - git
 - curl
 
@@ -101,7 +101,7 @@ PetFish Remote 支持多种 AI 编程助手作为后端：
 - 如果未找到任何Agent二进制文件，Connector将报错退出
 - 安装脚本会在启动前检测所选 agent 二进制文件是否存在，如未找到会发出警告
 
-## 9. 多平台设置（Telegram + 飞书）
+## 9. 多平台设置（Telegram / Slack / 飞书 / 企业微信 / Web）
 
 - PetFish Remote支持同时从Telegram和飞书控制同一组项目
 - 添加第二个平台：在新平台发送/start获取token，然后在已有connector.yaml的项目目录重新运行安装命令
@@ -162,4 +162,4 @@ Connector 具备自动更新机制。每次启动时，程序会向 `/api/versio
 | `Connection refused` | 无法连接到 Bot Server | 检查网络连通性，或验证 `PETFISH_SERVER_URL` 是否正确。 |
 | `Invalid token` | Token 过期或无效 | 在 Telegram 发送 `/start` 获取新 token 并重新执行 setup。 |
 | `No active project` | 未在 Telegram 选择目标项目 | 在 Telegram 发送 `/pf use <project>` 进行绑定。 |
-| 日志无输出且进程退出 | Node.js 版本过低 | 升级 Node.js 至 18 或以上版本。 |
+| 日志无输出且进程退出 | Node.js 版本过低 | 升级 Node.js 至 20 或以上版本。 |

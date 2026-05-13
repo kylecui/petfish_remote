@@ -1,3 +1,5 @@
+> ℹ️ **Point-in-time review** from the V0.1 era. High-priority issues (P1, P2, P13) have been resolved in V0.2+. See [Architecture](./architecture.md) for the current design.
+
 # PetFish Remote 技术架构审查报告
 
 > 审查日期: 2026-05-08

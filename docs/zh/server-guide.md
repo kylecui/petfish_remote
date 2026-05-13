@@ -15,6 +15,8 @@
 - 独立域名及有效 SSL 证书
 - 有效的 Telegram Bot Token
 - 飞书 App ID 和 App Secret（如使用飞书平台）
+- Slack App Token 和 Bot Token（如使用Slack）
+- 企业微信 Bot ID 和 Secret（如使用企业微信）
 
 ## 3. 获取 Telegram Bot Token
 
@@ -50,7 +52,7 @@ PetFish Remote将平台集成（服务端）与AI Agent管理（客户端）分�
 
 | 层级 | 职责 | 位置 |
 |------|------|------|
-| **聊天平台适配器** | Telegram Bot、飞书Bot、消息渲染、用户身份 | 服务端（Bot Server） |
+| **聊天平台适配器** | Telegram、Slack、飞书、企业微信和Web — 消息渲染、用户身份 | 服务端（Bot Server） |
 | **Connector** | WebSocket连接、AI Agent生命周期、项目管理 | 客户端（开发机） |
 | **注册服务** | Token交换、Connector身份管理、平台用户绑定 | 服务端API（`/api/register`、`/api/add-platform`） |
 
@@ -83,6 +85,40 @@ FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 FEISHU_DOMAIN=feishu
 EOF
 ```
+
+### Slack集成
+
+如需启用Slack：
+
+1. 在 [api.slack.com/apps](https://api.slack.com/apps) 创建Slack应用。
+2. 启用Socket Mode并生成App-Level Token。
+3. 添加Bot权限：`chat:write`、`app_mentions:read`、`im:history`、`im:read`、`im:write`。
+4. 在 `.env` 中追加：
+
+```env
+SLACK_SIGNING_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### 企业微信集成
+
+如需启用企业微信：
+
+1. 在企业微信管理后台注册AI Bot。
+2. 获取Bot ID和Secret。
+3. 在 `.env` 中追加：
+
+```env
+WECOM_BOT_ID=xxxxxxxxxx
+WECOM_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Web控制台
+
+Web控制台默认启用。提供深色主题的单页聊天界面（路径 `/web/`）和WebSocket端点（`/ws/web`）。通过API Key认证（`?key=<api-key>`）。
+
+说明：可同时运行任意平台组合。至少需要配置一个平台。
 
 ## 7. 配置文件
 
@@ -148,6 +184,22 @@ server {
 
     # WebSocket 路由
     location /ws/connector {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+    }
+
+    # Web控制台
+    location /web/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    # Web WebSocket
+    location /ws/web {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

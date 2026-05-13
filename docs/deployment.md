@@ -63,10 +63,13 @@ PETFISH_LOG_LEVEL=info
 
 可选平台变量（按需启用）：
 
-- `SLACK_SIGNING_SECRET`
-- `SLACK_BOT_TOKEN`
-- `FEISHU_APP_ID`
-- `FEISHU_APP_SECRET`
+- `SLACK_SIGNING_SECRET` — Slack 签名密钥（HTTP 模式）
+- `SLACK_BOT_TOKEN` — Slack Bot Token（xoxb-）
+- `SLACK_APP_TOKEN` — Slack App-Level Token（xapp-，Socket Mode 必需）
+- `FEISHU_APP_ID` — 飞书 App ID
+- `FEISHU_APP_SECRET` — 飞书 App Secret
+- `WECOM_BOT_ID` — 企业微信 Bot ID
+- `WECOM_SECRET` — 企业微信 Secret
 
 ---
 
@@ -196,6 +199,16 @@ pm2 startup
 
 ## 7. Webhook 模式（vs Polling）
 
+### 各平台连接方式
+
+| 平台 | 连接方式 | 说明 |
+|------|---------|------|
+| Telegram | Long Polling 或 Webhook | 默认 Polling，可切换为 Webhook |
+| Slack | Socket Mode | 无需公网 Webhook，通过 `SLACK_APP_TOKEN` (xapp-) 建立 WebSocket |
+| Feishu | Event Subscription (Webhook) | 需配置事件订阅 URL：`https://your-domain/api/feishu/webhook` |
+| WeCom | WebSocket | 通过 `@wecom/aibot-node-sdk` 内置 WebSocket 连接，无需公网暴露 |
+| Web | WebSocket (`/ws/web`) | 浏览器通过 `wss://your-domain/ws/web?key=<API_KEY>` 连接 |
+
 当前默认是 Telegram Polling（`config/adapters.yaml`）：
 
 ```yaml
@@ -243,6 +256,21 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Web UI 静态页面
+    location /web/ {
+        proxy_pass http://127.0.0.1:<PETFISH_PORT>;
+        proxy_set_header Host $host;
+    }
+
+    # Web UI WebSocket
+    location /ws/web {
+        proxy_pass http://127.0.0.1:<PETFISH_PORT>;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
     }
 }
 ```

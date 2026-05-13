@@ -36,7 +36,10 @@ src/
 ├── adapters/                # IM platform adapters
 │   ├── types.ts             # IMAdapter interface
 │   ├── telegram/            # Telegram adapter (grammY)
-│   └── feishu/              # Feishu/Lark adapter
+│   ├── slack/               # Slack adapter (@slack/bolt, Socket Mode)
+│   ├── feishu/              # Feishu/Lark adapter (@larksuiteoapi/node-sdk)
+│   ├── wecom/               # WeCom adapter (@wecom/aibot-node-sdk)
+│   └── web/                 # Web UI adapter (vanilla HTML/CSS/JS)
 ├── core/                    # Business logic
 │   ├── CommandRouter.ts     # Parse /pf commands and natural language
 │   ├── PolicyEngine.ts      # Command whitelist + task policy evaluation
@@ -52,6 +55,7 @@ src/
 ├── server/                  # ConnectorGateway (HTTP + WebSocket server)
 ├── runtime/                 # RuntimeRouter, LocalRuntime, RemoteRuntime
 ├── render/                  # MessageRenderer, OutputBatcher, render policies
+├── plugin/                  # opencode Bun plugin (tool interception, permission auto-handling)
 └── storage/                 # SQLite persistence
 ```
 
@@ -66,7 +70,7 @@ All imports use `.js` extensions (Node16 module resolution).
 
 ## Testing
 
-Tests use [vitest](https://vitest.dev/) and live in the `tests/` directory.
+Tests use [vitest](https://vitest.dev/) and live in the `tests/` directory. The test suite includes **95 tests across 8 test files** covering protocol, adapters, core, and rendering.
 
 ```bash
 npm run test           # single run
@@ -77,7 +81,7 @@ npm run test:watch     # watch mode
 
 PetFish Remote has three runtime components:
 
-1. **Bot Server** (`npm run start`) — receives messages from Telegram/Feishu, manages connector registry, dispatches tasks over WebSocket
+1. **Bot Server** (`npm run start`) — receives messages from Telegram, Slack, Feishu, WeCom, or Web, manages connector registry, dispatches tasks over WebSocket
 2. **Connector** (`npm run start:connector`) — runs on your dev machine, receives tasks from the bot server, bridges to opencode via SDK
 3. **Session Bridge** (inside connector) — manages per-opencode-session communication using `@opencode-ai/sdk`
 
@@ -86,7 +90,7 @@ PetFish Remote has three runtime components:
 - **State machine**: `TaskManager` enforces valid status transitions via `VALID_TRANSITIONS` table. Terminal states (`completed`, `failed`, `cancelled`, `timeout`) accept no outbound transitions.
 - **Policy evaluation**: `PolicyEngine.evaluate()` runs before every task dispatch. `evaluateCommand()` checks command whitelist before execution.
 - **Adapter abstraction**: `IMAdapter` interface decouples platform-specific logic. Each adapter handles `sendMessage(ChatResponse)`, typing indicators, and interactive elements.
-- **Output batching**: `OutputBatcher` collects streaming chunks and flushes on intervals, respecting per-platform character limits (Telegram: 4096, Feishu: 30000).
+- **Output batching**: `OutputBatcher` collects streaming chunks and flushes on intervals, respecting per-platform character limits (Telegram: 4096, Slack: 3000, Feishu: 30000, WeCom: 4000, Web: 65536).
 
 ## Configuration
 

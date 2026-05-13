@@ -10,7 +10,7 @@ Service info (public, no auth).
 
 **Response** `200`:
 ```json
-{ "service": "petfish-remote-ws", "version": "0.1.0", "connectors": 2 }
+{ "service": "petfish-remote-ws", "version": "0.4.0", "connectors": 2 }
 ```
 
 ### `GET /api/version`
@@ -19,7 +19,7 @@ Server version.
 
 **Response** `200`:
 ```json
-{ "version": "0.1.0" }
+{ "version": "0.4.0" }
 ```
 
 ### `GET /api/status`
@@ -31,9 +31,9 @@ Admin-only dashboard. Requires `ADMIN_API_KEY` env var on the server.
 **Response** `200`:
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.4.0",
   "uptime": 86400,
-  "adapters": { "telegram": "running", "feishu": "running" },
+  "adapters": { "telegram": "running", "slack": "running", "feishu": "running", "wecom": "running", "web": "running" },
   "connectors": [{ "connectorId": "...", "hostname": "...", "projects": [] }],
   "projects": [],
   "registeredUsers": [],
@@ -95,6 +95,16 @@ Serves the install script with `__PETFISH_SERVER_URL__` replaced by `PETFISH_SER
 ## WebSocket Protocol
 
 The Connector connects to the Bot Server via WebSocket at the configured path (default `/ws`).
+
+### `GET /ws/web` (WebSocket)
+
+Web UI WebSocket endpoint. Connects the browser-based chat console to the bot server.
+
+**Query parameters**: `key=<API_KEY>` — required for authentication.
+
+**Protocol**: JSON messages over WebSocket. Inbound types: `message`, `command`, `questionReply`, `permissionReply`. Outbound types: `connected`, `message`, `typing`, `question`, `permission`, `menu`, `projectList`, `sessionList`, `welcome`.
+
+See `src/adapters/web/` for protocol details.
 
 ### Protocol Version
 

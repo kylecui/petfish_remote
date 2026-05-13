@@ -11,6 +11,8 @@ Self-deploying the PetFish Remote server gives you full control over your data. 
 * A registered domain with an SSL certificate
 * A Telegram Bot Token
 * A Feishu App ID and Secret (if using Feishu)
+* A Slack App Token and Bot Token (if using Slack)
+* A WeCom Bot ID and Secret (if using WeCom)
 
 ## Create a Telegram Bot
 1. Open Telegram and search for `@BotFather`.
@@ -46,7 +48,7 @@ PetFish Remote separates platform integration (server-side) from AI agent manage
 
 | Layer | Responsibility | Where |
 |-------|---------------|-------|
-| **Chat Platform Adapters** | Telegram bot, Feishu bot, message rendering, user identity | Server (Bot Server) |
+| **Chat Platform Adapters** | Telegram, Slack, Feishu, WeCom, and Web — message rendering, user identity | Server (Bot Server) |
 | **Connector** | WebSocket connection, AI agent lifecycle, project management | Client (your dev machine) |
 | **Registration** | Token exchange, connector identity, platform user binding | Server API (`/api/register`, `/api/add-platform`) |
 
@@ -76,6 +78,40 @@ FEISHU_APP_ID=cli_xxxxxxxxxxxx
 FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 FEISHU_DOMAIN=feishu
 ```
+
+### Slack Integration
+
+To enable Slack:
+
+1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps).
+2. Enable Socket Mode and generate an App-Level Token.
+3. Add bot scopes: `chat:write`, `app_mentions:read`, `im:history`, `im:read`, `im:write`.
+4. Add to `.env`:
+
+```env
+SLACK_SIGNING_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
+SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### WeCom Integration
+
+To enable WeCom (企业微信):
+
+1. Register an AI bot on the WeCom admin console.
+2. Obtain the Bot ID and Secret.
+3. Add to `.env`:
+
+```env
+WECOM_BOT_ID=xxxxxxxxxx
+WECOM_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Web Console
+
+The Web console is enabled by default. It serves a single-page dark-themed chat UI at `/web/` and a WebSocket endpoint at `/ws/web`. Authentication is via API key (`?key=<api-key>`).
+
+Note: You can run any combination of platforms simultaneously. At least one platform must be configured.
 
 ## Configuration Files
 Server settings reside in the `config/` directory.
@@ -132,6 +168,20 @@ server {
     }
 
     location /ws/connector {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+    }
+
+    location /web/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    location /ws/web {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

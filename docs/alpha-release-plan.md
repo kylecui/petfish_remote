@@ -1,3 +1,5 @@
+> ⚠️ **Historical document** — V0.1 alpha plan. All items have been implemented. See [Roadmap](./roadmap.md) for current status.
+
 # Alpha Release Plan (v0.1.0-alpha)
 
 ## Goal

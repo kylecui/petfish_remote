@@ -1,10 +1,10 @@
 # Client Installation and Usage Guide
 
 ## Overview
-The Connector bridges your local OpenCode session to Telegram and Feishu via the bot server. It allows you to control your local AI agents remotely.
+The Connector bridges your local OpenCode session to Telegram, Slack, Feishu, WeCom, and Web via the bot server. It allows you to control your local AI agents remotely.
 
 ## Prerequisites
-* Node.js >= 18
+* Node.js >= 20
 * git
 * curl
 
@@ -64,7 +64,7 @@ petfish-connect.sh start ./connector.yaml
 \`\`\`
 ```
 
-## Commands (Telegram & Feishu)
+## Commands (All Platforms)
 Manage your sessions via `@petfish_bot` on Telegram or the Feishu bot interface. Feishu uses the exact same commands as Telegram.
 
 * `/pf use <project>`: Bind a specific project to your current chat.
@@ -89,7 +89,7 @@ To configure, use the `--agent` flag during installation or set the `agent` fiel
 When `agent` is set to `auto` (the default), the connector auto-detects available agents at startup. The detection priority is opencode, then gemini, and finally codex. The connector exits with an error if no agent binary is found.
 
 ## Multi-Platform Setup
-PetFish Remote supports both Telegram and Feishu simultaneously. 
+PetFish Remote supports Telegram, Slack, Feishu (Lark), WeCom, and Web simultaneously. 
 
 To add a second platform, send `/start` on the new platform. Then re-run the install command from the project directory where your `connector.yaml` exists. The installer auto-detects the existing `connector.yaml` file and calls the `/api/add-platform` endpoint. Your existing connector token and WebSocket connection remain untouched.
 
@@ -145,4 +145,4 @@ The connector includes an auto-update mechanism. On start, it compares its versi
 |---------|-------|-----|
 | Connection refused | Server unreachable | Check network and `serverUrl` in `connector.yaml` |
 | Invalid token | Token expired or used | Request a new token via `/start` |
-| Process exits | Missing Node.js | Verify Node.js >= 18 is installed |
+| Process exits | Missing Node.js | Verify Node.js >= 20 is installed |
