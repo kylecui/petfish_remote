@@ -52,8 +52,10 @@ export class OpenCodeBridge implements AgentBridge {
   private sseReconnectTimer: NodeJS.Timeout | undefined;
   private idleDrainTimer: NodeJS.Timeout | undefined;
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
+  private readonly settleDeferralCounts = new Map<string, number>();
   private readonly idleConfirmMs = 1500;
   private readonly settleGraceMs = 8_000;
+  private readonly maxSettleDeferrals = 6;
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
   private lastCompletedAssistantId: string | undefined;
@@ -813,11 +815,20 @@ export class OpenCodeBridge implements AgentBridge {
       if (!entry || entry.settled) return;
 
       if (this.sessionBusy) {
-        console.log(`[OpenCodeBridge] safety settle deferred — session still busy task=${taskId}`);
-        this.scheduleSettleOnComplete(taskId);
-        return;
+        const count = (this.settleDeferralCounts.get(taskId) ?? 0) + 1;
+        this.settleDeferralCounts.set(taskId, count);
+
+        if (count < this.maxSettleDeferrals) {
+          console.log(`[OpenCodeBridge] safety settle deferred (${count}/${this.maxSettleDeferrals}) — session still busy task=${taskId}`);
+          this.scheduleSettleOnComplete(taskId);
+          return;
+        }
+
+        console.warn(`[OpenCodeBridge] force-settling task=${taskId} after ${count} deferrals — resetting sessionBusy`);
+        this.sessionBusy = false;
       }
 
+      this.settleDeferralCounts.delete(taskId);
       console.log(`[OpenCodeBridge] settle firing task=${taskId} (${this.settleGraceMs / 1000}s after completion signal)`);
       entry.settled = true;
       this.cleanup(taskId);
@@ -849,6 +860,7 @@ export class OpenCodeBridge implements AgentBridge {
 
   private cleanup(taskId: string): void {
     this.cancelSettleTimer(taskId);
+    this.settleDeferralCounts.delete(taskId);
     const entry = this.pending.get(taskId);
     if (entry) {
       this.messageToTask.delete(entry.userMessageId);
@@ -1003,11 +1015,13 @@ export class OpenCodeBridge implements AgentBridge {
       : await this.findCandidatePortsWindows();
 
     if (candidatePorts.length === 0) return undefined;
-    if (candidatePorts.length === 1) return candidatePorts[0];
 
     if (this.cwd) {
       const verified = await this.verifyPortBySessionApi(candidatePorts);
       if (verified) return verified;
+      if (candidatePorts.length === 1) {
+        console.warn(`[OpenCodeBridge] single opencode port=${candidatePorts[0]} found but no session matches cwd=${this.cwd}; using it anyway`);
+      }
     }
 
     return candidatePorts[0];
@@ -1071,9 +1085,20 @@ export class OpenCodeBridge implements AgentBridge {
     if (!this.client) return undefined;
     try {
       const { data: sessions } = await this.client.session.list();
-      const list = sessions as Array<{ id: string; time: { updated: number } }> | undefined;
+      const list = sessions as Array<{ id: string; directory?: string; time: { updated: number } }> | undefined;
       if (!list || list.length === 0) return undefined;
       list.sort((a, b) => b.time.updated - a.time.updated);
+
+      // Prefer sessions whose directory matches this bridge's cwd
+      if (this.cwd) {
+        const matching = list.find(s => s.directory === this.cwd);
+        if (matching) {
+          console.log(`[OpenCodeBridge] discovered session=${matching.id} matching cwd=${this.cwd}`);
+          return matching.id;
+        }
+        console.warn(`[OpenCodeBridge] no session matches cwd=${this.cwd}, falling back to most recent`);
+      }
+
       return list[0].id;
     } catch {
       return undefined;
