@@ -169,6 +169,11 @@ if (config.gateway.enabled) {
             secrets_policy: 'mask',
           }, connectorId);
           console.log(`[auto-register] Project ${proj.id} added from connector ${connectorId}${connInfo.userId ? ` for user ${connInfo.userId}` : ''}`);
+        } else {
+          projectRegistry.setConnectorMapping(proj.id, connectorId);
+          if (connInfo.userId) {
+            projectRegistry.addUserToProject(proj.id, connInfo.userId);
+          }
         }
       }
     }

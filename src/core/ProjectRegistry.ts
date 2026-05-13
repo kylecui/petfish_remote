@@ -40,6 +40,10 @@ export class ProjectRegistry {
     if (connectorId) this.projectToConnector.set(project.id, connectorId);
   }
 
+  public setConnectorMapping(projectId: string, connectorId: string): void {
+    this.projectToConnector.set(projectId, connectorId);
+  }
+
   public removeProject(id: string): void {
     this.projectsById.delete(id);
     this.projectToConnector.delete(id);
