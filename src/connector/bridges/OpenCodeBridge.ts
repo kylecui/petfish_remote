@@ -1020,9 +1020,8 @@ export class OpenCodeBridge implements AgentBridge {
     if (this.cwd) {
       const verified = await this.verifyPortBySessionApi(candidatePorts);
       if (verified) return verified;
-      if (candidatePorts.length === 1) {
-        console.warn(`[OpenCodeBridge] single opencode port=${candidatePorts[0]} found but no session matches cwd=${this.cwd}; using it anyway`);
-      }
+      console.warn(`[OpenCodeBridge] ${candidatePorts.length} opencode port(s) found but none have a session matching cwd=${this.cwd}; rejecting to avoid cross-project binding`);
+      return undefined;
     }
 
     return candidatePorts[0];
@@ -1097,7 +1096,8 @@ export class OpenCodeBridge implements AgentBridge {
           console.log(`[OpenCodeBridge] discovered session=${matching.id} matching cwd=${this.cwd}`);
           return matching.id;
         }
-        console.warn(`[OpenCodeBridge] no session matches cwd=${this.cwd}, falling back to most recent`);
+        console.warn(`[OpenCodeBridge] no session matches cwd=${this.cwd}, rejecting cross-project fallback (${list.length} sessions from other projects ignored)`);
+        return undefined;
       }
 
       return list[0].id;
