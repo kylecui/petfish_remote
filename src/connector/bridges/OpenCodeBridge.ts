@@ -303,6 +303,7 @@ export class OpenCodeBridge implements AgentBridge {
             path: { id: this.sessionId },
             body: {
               parts: [{ type: 'text', text: instruction }],
+              ...(this.lastCompletedAssistantId ? { parentID: this.lastCompletedAssistantId } : {}),
               ...(this.modelOverride ? { model: this.modelOverride } : {}),
             },
           });
