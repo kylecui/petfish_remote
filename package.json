@@ -1,6 +1,6 @@
 {
   "name": "petfish-remote",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Chat-based control plane for safely operating opencode agents across project workspaces",
   "type": "module",
   "main": "dist/main.js",
