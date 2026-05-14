@@ -130,7 +130,7 @@ Web控制台默认启用。提供深色主题的单页聊天界面（路径 `/we
 
 ## 8. Systemd 服务
 
-为保障服务持续运行，需配置 systemd 守护进程。创建文件 `/etc/systemd/system/petfish-server.service`：
+为保障服务持续运行，需配置 systemd 守护进程。创建文件 `/etc/systemd/system/petfish-remote.service`：
 
 ```ini
 [Unit]
@@ -154,8 +154,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable petfish-server
-sudo systemctl start petfish-server
+sudo systemctl enable petfish-remote
+sudo systemctl start petfish-remote
 ```
 
 ## 9. Nginx 反向代理
@@ -251,7 +251,7 @@ cd /opt/petfish-remote
 git pull
 npm install --production
 npm run build
-sudo systemctl restart petfish-server
+sudo systemctl restart petfish-remote
 ```
 
 ## 14. 安全建议

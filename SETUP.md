@@ -119,7 +119,7 @@ Connector is running in background. It will survive terminal close.
 验证 connector 确实注册成功：
 
 ```bash
-ssh root@38.55.160.238 "journalctl -u petfish-remote --no-pager -n 5 | grep -i register"
+ssh ubuntu@165.154.218.237 "journalctl -u petfish-remote --no-pager -n 5 | grep -i register"
 ```
 
 其它管理命令：
@@ -203,7 +203,7 @@ EOF
 
 | 项目 | 值 |
 |------|------|
-| 服务器 | root@38.55.160.238 |
+| 服务器 | ubuntu@165.154.218.237 |
 | 服务名 | petfish-remote (systemd) |
 | 配置目录 | /opt/petfish-remote/config/ |
 | WebSocket | wss://remote.petfish.ai/ws/connector |

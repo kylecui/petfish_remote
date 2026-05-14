@@ -6,6 +6,24 @@ All notable changes to PetFish Remote are documented here.
 
 ---
 
+## Connector Patch Releases (2026-05-13 ~ 2026-05-14)
+
+### v0.2.2 — Reject cross-project session/port fallback
+
+- **Fix**: `discoverSession()` and `discoverPort()` no longer fall back to sessions/ports from unrelated projects when no match is found for `this.cwd`. Callers (`rediscover()`, `prompt()`) already handle `undefined` gracefully. (`ab3fd44`)
+
+### v0.2.1 — Pass parentID to maintain conversation continuity
+
+- **Fix**: `injectPrompt()` now passes `parentID` (last completed assistant message ID) in `promptAsync` calls, so each prompt continues the existing conversation thread instead of starting fresh. This was the root cause of the bot always responding with the default greeting. (`1f9e035`)
+
+### v0.2.0 — Cross-project routing & sessionBusy stall fix
+
+- **Fix**: `discoverPort()` now validates candidate ports against `this.cwd` before selecting, preventing cross-project routing when multiple opencode instances are running. (`OpenCodeBridge.ts`)
+- **Fix**: `discoverSession()` now filters sessions by project directory, preventing messages from routing to the wrong project's session. (`OpenCodeBridge.ts`)
+- **Fix**: `scheduleSettleOnComplete()` now enforces `maxSettleDeferrals = 6`, preventing indefinite deferral when `sessionBusy` is true. After 6 deferrals, settlement proceeds regardless. (`OpenCodeBridge.ts`)
+
+---
+
 ## V0.4 — Multi-Platform, Permissions, Plugin, Sub-Agents (2026-05-10 ~ 2026-05-12)
 
 ### P4k — Compaction Bug Mitigations

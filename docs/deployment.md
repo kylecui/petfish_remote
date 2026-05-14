@@ -87,8 +87,8 @@ After=network.target
 [Service]
 Type=simple
 User=petfish
-WorkingDirectory=/opt/petfish_remote
-EnvironmentFile=/opt/petfish_remote/.env
+WorkingDirectory=/opt/petfish-remote
+EnvironmentFile=/opt/petfish-remote/.env
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=5
@@ -179,8 +179,8 @@ module.exports = {
     {
       name: 'petfish-remote',
       script: 'dist/main.js',
-      cwd: '/opt/petfish_remote',
-      env_file: '/opt/petfish_remote/.env',
+      cwd: '/opt/petfish-remote',
+      env_file: '/opt/petfish-remote/.env',
       autorestart: true,
     },
   ],

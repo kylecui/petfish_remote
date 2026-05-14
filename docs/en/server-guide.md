@@ -121,7 +121,7 @@ Server settings reside in the `config/` directory.
 * `config/users.yaml`: The Telegram user allowlist. Add your Telegram user ID here to restrict access.
 
 ## Systemd Service
-Create a systemd unit file to manage the server process at `/etc/systemd/system/petfish-server.service`.
+Create a systemd unit file to manage the server process at `/etc/systemd/system/petfish-remote.service`.
 
 ```ini
 [Unit]
@@ -133,7 +133,7 @@ Type=simple
 User=petfish
 WorkingDirectory=/opt/petfish-remote
 EnvironmentFile=/opt/petfish-remote/.env
-ExecStart=/usr/bin/node dist/server.js
+ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5
 
@@ -145,8 +145,8 @@ Enable and start the service:
 
 ```bash
 systemctl daemon-reload
-systemctl enable petfish-server
-systemctl start petfish-server
+systemctl enable petfish-remote
+systemctl start petfish-remote
 ```
 
 ## Nginx Reverse Proxy
@@ -219,7 +219,7 @@ cd /opt/petfish-remote
 git pull
 npm install --production
 npm run build
-systemctl restart petfish-server
+systemctl restart petfish-remote
 ```
 
 ## Security Recommendations
@@ -231,6 +231,6 @@ systemctl restart petfish-server
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| 502 Bad Gateway | Node.js server down | Check `systemctl status petfish-server` |
+| 502 Bad Gateway | Node.js server down | Check `systemctl status petfish-remote` |
 | WebSocket fails | Nginx missing Upgrade header | Verify the `/ws/connector` location block in Nginx |
 | Bot not responding | Invalid bot token | Update `TELEGRAM_BOT_TOKEN` in `.env` and restart |
