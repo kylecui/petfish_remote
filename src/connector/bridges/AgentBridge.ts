@@ -14,6 +14,7 @@ export type QuestionCallback = (taskId: string, payload: TaskQuestionPayload) =>
 export type PermissionCallback = (taskId: string, payload: TaskPermissionPayload) => void;
 export interface PromptOptions {
   subAgentVerbosity?: SubAgentVerbosity;
+  timeoutSeconds?: number;
 }
 
 export type AgentType = 'opencode' | 'gemini' | 'codex';

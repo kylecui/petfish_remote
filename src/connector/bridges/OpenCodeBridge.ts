@@ -53,11 +53,15 @@ export class OpenCodeBridge implements AgentBridge {
   private idleDrainTimer: NodeJS.Timeout | undefined;
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private readonly settleDeferralCounts = new Map<string, number>();
+  private readonly taskTimeoutTimers = new Map<string, NodeJS.Timeout>();
+  private readonly permissionTimeoutTimers = new Map<string, NodeJS.Timeout>();
   private readonly idleConfirmMs = 1500;
   private readonly settleGraceMs = 8_000;
   private readonly maxSettleDeferrals = 6;
   private readonly submitVerifyMs = 5000;
   private readonly maxSubmitRetries = 3;
+  private readonly defaultTaskTimeoutMs = 30 * 60 * 1000; // 30 min fallback
+  private readonly permissionTimeoutMs = 120_000; // 2 min auto-deny
   private lastCompletedAssistantId: string | undefined;
   private pendingCorrelation: string | undefined;
   private stopped = false;
@@ -247,6 +251,9 @@ export class OpenCodeBridge implements AgentBridge {
 
   private injectPrompt(taskId: string, instruction: string, onOutput: OutputCallback, onComplete: CompleteCallback, onFail: FailCallback, options?: PromptOptions): void {
     const subAgentVerbosity = options?.subAgentVerbosity ?? 'summary';
+    const timeoutMs = (options?.timeoutSeconds ?? 0) > 0
+      ? options!.timeoutSeconds! * 1000
+      : this.defaultTaskTimeoutMs;
 
     const entry: PendingPrompt = {
       taskId,
@@ -263,6 +270,19 @@ export class OpenCodeBridge implements AgentBridge {
     };
 
     this.pending.set(taskId, entry);
+
+    // Task-level timeout — fires if task never completes (e.g. stuck on permission)
+    const taskTimer = setTimeout(() => {
+      this.taskTimeoutTimers.delete(taskId);
+      const e = this.pending.get(taskId);
+      if (e && !e.settled) {
+        console.warn(`[OpenCodeBridge] task timeout fired after ${timeoutMs / 1000}s taskId=${taskId}`);
+        this.settle(taskId, `Task timed out after ${timeoutMs / 1000}s`);
+        this.scheduleIdleDrain();
+      }
+    }, timeoutMs);
+    this.taskTimeoutTimers.set(taskId, taskTimer);
+
     this.pendingCorrelation = taskId;
     this.subAgentTracker.reset();
     this.subAgentTracker.setErrorCallback((text) => {
@@ -447,6 +467,10 @@ export class OpenCodeBridge implements AgentBridge {
     this.cancelIdleDrain();
     for (const timer of this.settleTimers.values()) clearTimeout(timer);
     this.settleTimers.clear();
+    for (const timer of this.taskTimeoutTimers.values()) clearTimeout(timer);
+    this.taskTimeoutTimers.clear();
+    for (const timer of this.permissionTimeoutTimers.values()) clearTimeout(timer);
+    this.permissionTimeoutTimers.clear();
     if (this.sseReconnectTimer) {
       clearTimeout(this.sseReconnectTimer);
       this.sseReconnectTimer = undefined;
@@ -862,6 +886,16 @@ export class OpenCodeBridge implements AgentBridge {
   private cleanup(taskId: string): void {
     this.cancelSettleTimer(taskId);
     this.settleDeferralCounts.delete(taskId);
+    const taskTimer = this.taskTimeoutTimers.get(taskId);
+    if (taskTimer) {
+      clearTimeout(taskTimer);
+      this.taskTimeoutTimers.delete(taskId);
+    }
+    const permTimer = this.permissionTimeoutTimers.get(taskId);
+    if (permTimer) {
+      clearTimeout(permTimer);
+      this.permissionTimeoutTimers.delete(taskId);
+    }
     const entry = this.pending.get(taskId);
     if (entry) {
       this.messageToTask.delete(entry.userMessageId);
@@ -952,6 +986,17 @@ export class OpenCodeBridge implements AgentBridge {
         input: input ?? {},
       });
     }
+
+    const permTimer = setTimeout(() => {
+      this.permissionTimeoutTimers.delete(permissionId);
+      console.warn(`[OpenCodeBridge] permission timeout, auto-denying permissionId=${permissionId} tool=${tool}`);
+      this.answerPermission(permissionId, false);
+      const e = taskId ? this.pending.get(taskId) : undefined;
+      if (e && !e.settled) {
+        e.onOutput(taskId!, 'stderr', `\n⚠️ Permission for "${tool}" was auto-denied after ${this.permissionTimeoutMs / 1000}s timeout.\n`);
+      }
+    }, this.permissionTimeoutMs);
+    this.permissionTimeoutTimers.set(permissionId, permTimer);
   }
 
   public answerQuestion(questionId: string, answers: string[][]): void {
@@ -979,6 +1024,11 @@ export class OpenCodeBridge implements AgentBridge {
 
   public answerPermission(permissionId: string, allowed: boolean): void {
     if (!this.opencodePort) return;
+    const existingTimer = this.permissionTimeoutTimers.get(permissionId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.permissionTimeoutTimers.delete(permissionId);
+    }
     const body = JSON.stringify({ allowed });
     const req = http.request(
       {

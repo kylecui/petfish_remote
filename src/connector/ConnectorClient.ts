@@ -345,6 +345,7 @@ export class ConnectorClient {
       this.send(createEnvelope(MSG.TASK_ACCEPTED, { taskId: payload.taskId }, payload.taskId));
       const ok = bridge.prompt(payload.taskId, instruction, onOutput, onComplete, onFail, {
         subAgentVerbosity: payload.subAgentVerbosity,
+        timeoutSeconds: payload.timeoutSeconds,
       });
 
       if (!ok) {
